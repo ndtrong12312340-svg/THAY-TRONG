@@ -3,9 +3,9 @@ import { ExerciseQuestion } from "../types";
 
 let genAI: GoogleGenAI | null = null;
 
-function getAI() {
+export function getAI() {
   if (!genAI) {
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY || (import.meta as any).env?.VITE_GEMINI_API_KEY;
     if (!apiKey) {
       throw new Error("Chưa cấu hình Gemini API Key. Vui lòng thêm trong Vercel/Environment Variables.");
     }

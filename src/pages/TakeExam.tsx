@@ -4,6 +4,7 @@ import { useAuth } from '../lib/AuthContext';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { doc, getDoc, addDoc, collection, updateDoc, arrayUnion } from 'firebase/firestore';
 import { GoogleGenAI, Type } from '@google/genai';
+import { getAI } from '../services/ai';
 import MathText from '../components/MathText';
 import { Clock, AlertCircle, ChevronLeft, CheckCircle, BookOpen, Loader2, Upload, Send } from 'lucide-react';
 
@@ -139,10 +140,7 @@ export default function TakeExam() {
 
       // Automatic AI grading for essays if they exist
       if (essayQuestions.length > 0) {
-        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
-        if (!process.env.GEMINI_API_KEY) {
-          throw new Error("Chưa cấu hình Gemini API Key. Vui lòng thêm trong phần cài đặt.");
-        }
+        const ai = getAI();
         
         for (const q of essayQuestions) {
           const images = essayImages[q.id] || [];

@@ -7,6 +7,7 @@ import { ArrowLeft, Users, CheckCircle, XCircle, Trash2, AlertCircle, BarChart3,
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList } from 'recharts';
 import MathText from '../components/MathText';
 import { GoogleGenAI, Type } from '@google/genai';
+import { getAI } from '../services/ai';
 
 export default function ExamResults() {
   const { examId } = useParams<{ examId: string }>();
@@ -212,10 +213,7 @@ export default function ExamResults() {
         return;
       }
 
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
-      if (!process.env.GEMINI_API_KEY) {
-        throw new Error("Chưa cấu hình Gemini API Key. Vui lòng thêm trong phần cài đặt.");
-      }
+      const ai = getAI();
 
       // Build prompt for AI grading
       const prompt = `

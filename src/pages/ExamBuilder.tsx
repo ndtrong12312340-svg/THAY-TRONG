@@ -4,6 +4,7 @@ import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, addDoc, doc, getDoc, updateDoc, getDocs, query, where } from 'firebase/firestore';
 import { useNavigate, useParams } from 'react-router-dom';
 import { GoogleGenAI, Type } from '@google/genai';
+import { getAI } from '../services/ai';
 import { Upload, Loader2, Save, ArrowLeft, Image as ImageIcon, Check, FileText, Edit2, Plus, Trash2, Brain } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import 'katex/dist/katex.min.css';
@@ -113,10 +114,7 @@ export default function ExamBuilder() {
       reader.onload = async () => {
         const base64Data = (reader.result as string).split(',')[1];
         
-        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
-        if (!process.env.GEMINI_API_KEY) {
-          throw new Error("Chưa cấu hình Gemini API Key. Vui lòng thêm trong phần cài đặt.");
-        }
+        const ai = getAI();
         
         const prompt = `
           Bạn là một chuyên gia phân tích đề thi.
@@ -221,10 +219,7 @@ export default function ExamBuilder() {
       reader.onload = async () => {
         const base64Data = (reader.result as string).split(',')[1];
         
-        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
-        if (!process.env.GEMINI_API_KEY) {
-          throw new Error("Chưa cấu hình Gemini API Key. Vui lòng thêm trong phần cài đặt.");
-        }
+        const ai = getAI();
         
         const prompt = `
           Bạn là một chuyên gia phân tích đề thi. Nhiệm vụ của bạn là trích xuất TOÀN BỘ dữ liệu từ file PDF đề thi (bao gồm Câu hỏi, Đáp án, và Lời giải chi tiết) một cách CHÍNH XÁC TUYỆT ĐỐI.
