@@ -119,7 +119,7 @@ export default function ExamBuilder() {
         }
         
         const prompt = `
-          Bạn là một chuyên gia phân tích đề thi THPT Quốc gia.
+          Bạn là một chuyên gia phân tích đề thi.
           Hãy đọc file đính kèm (có thể là file ảnh hoặc PDF) chứa đáp án và lời giải chi tiết.
           
           Dưới đây là danh sách các câu hỏi đã được trích xuất từ đề thi (chỉ hiển thị một phần nội dung để bạn đối chiếu):
@@ -227,7 +227,7 @@ export default function ExamBuilder() {
         }
         
         const prompt = `
-          Bạn là một chuyên gia phân tích đề thi THPT Quốc gia. Nhiệm vụ của bạn là trích xuất TOÀN BỘ dữ liệu từ file PDF đề thi (bao gồm Câu hỏi, Đáp án, và Lời giải chi tiết) một cách CHÍNH XÁC TUYỆT ĐỐI.
+          Bạn là một chuyên gia phân tích đề thi. Nhiệm vụ của bạn là trích xuất TOÀN BỘ dữ liệu từ file PDF đề thi (bao gồm Câu hỏi, Đáp án, và Lời giải chi tiết) một cách CHÍNH XÁC TUYỆT ĐỐI.
           Đặc biệt lưu ý: File PDF có thể chứa hình ảnh, công thức phức tạp. Hãy phân tích kỹ toàn bộ nội dung.
 
           QUY TRÌNH BÓC TÁCH VÀ TÁCH BIỆT DỮ LIỆU (CỰC KỲ QUAN TRỌNG):
@@ -633,7 +633,7 @@ export default function ExamBuilder() {
           <div className="grid grid-cols-1 gap-y-6 gap-x-6 sm:grid-cols-6">
             <div className="sm:col-span-4">
               <label className="block text-sm font-semibold text-gray-700 mb-1">Tiêu đề đề thi</label>
-              <input type="text" value={title} onChange={e => setTitle(e.target.value)} className="block w-full border border-gray-300 rounded-xl shadow-sm py-2.5 px-4 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm transition-colors" placeholder="VD: Đề thi thử THPT Quốc gia môn Toán lần 1" />
+              <input type="text" value={title} onChange={e => setTitle(e.target.value)} className="block w-full border border-gray-300 rounded-xl shadow-sm py-2.5 px-4 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm transition-colors" placeholder="VD: Đề kiểm tra học kì I môn Toán" />
             </div>
             <div className="sm:col-span-2">
               <label className="block text-sm font-semibold text-gray-700 mb-1">Thời gian (phút)</label>

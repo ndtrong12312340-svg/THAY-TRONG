@@ -1,5 +1,5 @@
 {
-  "name": "",
-  "description": "",
+  "name": "Hệ thống kiểm tra học kì",
+  "description": "Hệ thống quản lý và làm bài kiểm tra học kì trực tuyến với tích hợp AI chấm điểm.",
   "requestFramePermissions": []
 }

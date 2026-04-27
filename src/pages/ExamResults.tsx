@@ -219,7 +219,7 @@ export default function ExamResults() {
 
       // Build prompt for AI grading
       const prompt = `
-        Bạn là một giáo viên chấm thi THPT Quốc gia chuyên nghiệp.
+        Bạn là một giáo viên chấm thi chuyên nghiệp.
         Nhiệm vụ của bạn là chấm điểm bài làm tự luận của học sinh dựa trên ảnh chụp bài làm.
 
         CÂU HỎI:

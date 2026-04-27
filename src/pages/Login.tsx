@@ -50,7 +50,7 @@ export default function Login() {
           TOÁN THẦY TRỌNG 3T
         </h2>
         <p className="mt-2 text-center text-sm text-gray-600 font-medium">
-          Hệ thống thi thử THPT 2026
+          Hệ thống kiểm tra học kì
         </p>
       </div>
 
