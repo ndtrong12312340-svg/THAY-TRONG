@@ -1,17 +1,27 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { ExerciseQuestion } from "../types";
 
-let genAI: GoogleGenAI | null = null;
+let currentKeyIndex = 0;
+let apiKeys: string[] = [];
 
 export function getAI() {
-  if (!genAI) {
-    const apiKey = process.env.GEMINI_API_KEY || (import.meta as any).env?.VITE_GEMINI_API_KEY;
-    if (!apiKey) {
+  if (apiKeys.length === 0) {
+    const keyString = process.env.GEMINI_API_KEY || import.meta.env.VITE_GEMINI_API_KEY;
+    if (!keyString) {
       throw new Error("Chưa cấu hình Gemini API Key. Vui lòng thêm trong Vercel/Environment Variables.");
     }
-    genAI = new GoogleGenAI({ apiKey });
+    apiKeys = keyString.split(',').map(k => k.trim()).filter(k => k.length > 0);
+    if (apiKeys.length === 0) {
+      throw new Error("API Key không hợp lệ.");
+    }
   }
-  return genAI;
+
+  // Chọn key theo thuật toán xoay vòng (Round-Robin)
+  const selectedKey = apiKeys[currentKeyIndex];
+  // Chuyển sang key tiếp theo cho lần gọi sau
+  currentKeyIndex = (currentKeyIndex + 1) % apiKeys.length;
+
+  return new GoogleGenAI({ apiKey: selectedKey });
 }
 
 export async function generateExercise(
