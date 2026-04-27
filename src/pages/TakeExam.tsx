@@ -157,7 +157,7 @@ export default function TakeExam() {
               `;
 
               const response = await ai.models.generateContent({
-                model: 'gemini-1.5-flash',
+                model: 'gemini-3-flash-preview',
                 contents: [{
                   role: 'user',
                   parts: [
@@ -399,7 +399,7 @@ export default function TakeExam() {
           disabled={isSubmitting}
           className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-5 sm:px-8 py-2.5 sm:py-3 rounded-xl text-sm sm:text-base font-bold hover:from-indigo-700 hover:to-purple-700 disabled:from-gray-400 disabled:to-gray-500 transition-all shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
         >
-          {isSubmitting ? 'Đang nộp...' : 'Nộp bài'}
+          {isSubmitting ? 'Đang chấm...' : 'Nộp bài'}
         </button>
       </div>
 
@@ -619,7 +619,7 @@ export default function TakeExam() {
                 className="px-5 py-2.5 border border-transparent rounded-xl text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 transition-colors shadow-sm"
                 disabled={isSubmitting}
               >
-                {isSubmitting ? 'Đang nộp...' : 'Đồng ý nộp bài'}
+                {isSubmitting ? 'Đang nộp và chấm điểm AI...' : 'Đồng ý nộp bài'}
               </button>
             </div>
           </div>
