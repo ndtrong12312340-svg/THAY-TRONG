@@ -1,0 +1,37 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+body {
+  font-family: "Inter", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Prevent text overflow */
+.math-text, .whitespace-pre-wrap {
+  word-break: break-word;
+  overflow-wrap: break-word;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
+}
+
+/* Make block math scrollable horizontally instead of overflowing */
+.katex-display {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  overflow-y: hidden;
+  max-width: 100%;
+  padding-bottom: 0.25rem;
+}
+
+/* Ensure inline math can wrap if needed */
+.katex {
+  white-space: normal;
+}

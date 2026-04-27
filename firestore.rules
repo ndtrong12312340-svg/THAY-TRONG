@@ -1,0 +1,112 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isTeacher() {
+      return isAuthenticated() && getUserData().role == 'teacher';
+    }
+
+    function isStudent() {
+      return isAuthenticated() && getUserData().role == 'student';
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+    function isValidUser(data) {
+      return data.uid is string && data.uid.size() > 0 && data.uid.size() < 100 &&
+             data.email is string && data.email.size() > 0 && data.email.size() < 100 &&
+             data.role in ['teacher', 'student'] &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             (!('className' in data) || (data.className is string && data.className.size() < 100)) &&
+             (!('facebook' in data) || (data.facebook is string && data.facebook.size() < 200)) &&
+             (!('phone' in data) || (data.phone is string && data.phone.size() <= 20)) &&
+             data.createdAt is string;
+    }
+
+    function isValidExam(data) {
+      return data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
+             data.teacherId is string && data.teacherId.size() > 0 && data.teacherId.size() < 100 &&
+             data.duration is number && data.duration > 0 && data.duration <= 300 &&
+             data.status in ['draft', 'published', 'completed'] &&
+             data.assignedClasses is list && data.assignedClasses.size() <= 60 &&
+             data.questions is list && data.questions.size() <= 120 &&
+             (!('submissionSummary' in data) || data.submissionSummary is list) &&
+             data.createdAt is string;
+    }
+
+    function isValidSubmission(data) {
+      return data.examId is string && data.examId.size() > 0 && data.examId.size() < 100 &&
+             data.studentId is string && data.studentId.size() > 0 && data.studentId.size() < 100 &&
+             data.answers is string && data.answers.size() < 20000 &&
+             (!('essayImages' in data) || (data.essayImages is string && data.essayImages.size() < 1000 * 1024)) &&
+             data.score is number && data.score >= 0 && data.score <= 10 &&
+             (!('status' in data) || data.status in ['submitted', 'graded']) &&
+             data.incorrectQuestions is list && data.incorrectQuestions.size() <= 120 &&
+             data.submittedAt is string;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+    match /users/{userId} {
+      // Anyone authenticated can read user profiles (needed for teachers to see students, students to see teachers)
+      allow read: if isAuthenticated();
+      
+      // A user can create their own profile. A teacher can create student profiles.
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && 
+                    (isOwner(userId) || isTeacher());
+                    
+      // A user can update their own profile. A teacher can update student profiles.
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && 
+                    (isOwner(userId) || isTeacher()) &&
+                    request.resource.data.uid == resource.data.uid &&
+                    request.resource.data.createdAt == resource.data.createdAt;
+                    
+      allow delete: if isTeacher();
+    }
+
+    match /exams/{examId} {
+      // Teachers can read all exams. Students can read published exams.
+      allow read: if isAuthenticated() && (isTeacher() || (isStudent() && resource.data.status == 'published'));
+      
+      // Only teachers can create/update/delete exams
+      allow create: if isTeacher() && isValidExam(request.resource.data) && request.resource.data.teacherId == request.auth.uid;
+      allow update: if (isTeacher() && isValidExam(request.resource.data) && resource.data.teacherId == request.auth.uid && request.resource.data.teacherId == resource.data.teacherId && request.resource.data.createdAt == resource.data.createdAt) ||
+                    (isStudent() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['submissionSummary']));
+      allow delete: if isTeacher() && resource.data.teacherId == request.auth.uid;
+    }
+
+    match /submissions/{submissionId} {
+      // Teachers can read all submissions. Students can read their own submissions.
+      allow read: if isAuthenticated() && (isTeacher() || (isStudent() && resource.data.studentId == request.auth.uid));
+      
+      // Students can create submissions for themselves
+      allow create: if isStudent() && isValidSubmission(request.resource.data) && request.resource.data.studentId == request.auth.uid;
+      
+      // Teachers can update submissions (for recalculating scores)
+      allow update: if isTeacher() && isValidSubmission(request.resource.data) && request.resource.data.studentId == resource.data.studentId && request.resource.data.examId == resource.data.examId;
+      allow delete: if isTeacher();
+    }
+  }
+}

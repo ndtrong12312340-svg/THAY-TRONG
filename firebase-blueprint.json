@@ -1,0 +1,100 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "A user of the application (teacher or student).",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["teacher", "student"] },
+        "name": { "type": "string" },
+        "className": { "type": "string", "description": "Class name for students" },
+        "facebook": { "type": "string", "description": "Facebook profile link" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role", "name"]
+    },
+    "Exam": {
+      "title": "Exam",
+      "description": "An exam created by a teacher.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "duration": { "type": "number", "description": "Duration in minutes" },
+        "status": { "type": "string", "enum": ["draft", "published", "completed"] },
+        "assignedClasses": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "type": { "type": "string", "enum": ["multiple_choice", "true_false", "short_answer", "essay"] },
+              "content": { "type": "string" },
+              "imageUrl": { "type": "string" },
+              "imageUrls": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "options": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "correctAnswer": {
+                "type": "string",
+                "description": "JSON stringified answer to support different types"
+              }
+            },
+            "required": ["id", "type", "content", "correctAnswer"]
+          }
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "teacherId", "duration", "status", "questions"]
+    },
+    "Submission": {
+      "title": "Submission",
+      "description": "A student's submission for an exam.",
+      "type": "object",
+      "properties": {
+        "examId": { "type": "string" },
+        "studentId": { "type": "string" },
+        "answers": {
+          "type": "string",
+          "description": "JSON stringified map of questionId to answer"
+        },
+        "essayImages": {
+          "type": "string",
+          "description": "JSON stringified map of questionId to array of image URLs (base64/storage)"
+        },
+        "score": { "type": "number" },
+        "status": { "type": "string", "enum": ["submitted", "graded"] },
+        "incorrectQuestions": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "submittedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["examId", "studentId", "answers", "score", "submittedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Stores user profiles."
+    },
+    "/exams/{examId}": {
+      "schema": { "$ref": "#/entities/Exam" },
+      "description": "Stores exams and their questions."
+    },
+    "/submissions/{submissionId}": {
+      "schema": { "$ref": "#/entities/Submission" },
+      "description": "Stores student submissions."
+    }
+  }
+}
