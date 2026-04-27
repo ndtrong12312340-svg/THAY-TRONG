@@ -150,10 +150,15 @@ export default function TakeExam() {
                 Bạn là một giáo viên chuyên nghiệp. Chấm điểm bài làm tự luận dựa trên ảnh.
                 CÂU HỎI: ${q.content}
                 ĐÁP ÁN: ${q.correctAnswer || ""}
-                LỜI GIẢI CHI TIẾT: ${q.explanation || ""}
-                YÊU CẦU: Chấm điểm bài làm trên thang điểm từ 0 đến 3.0 (Tối đa 3 điểm cho phần tự luận).
-                Cần nhận xét chi tiết. Chấp nhận cách giải khác nếu đúng kết quả và logic.
-                Trả về JSON: { "score": number, "feedback": string }
+                LỜI GIẢI CHI TIẾT (BAREM CHẤM): ${q.explanation || "Không có barem cụ thể (mặc định 1.0 điểm)."}
+                
+                YÊU CẦU: 
+                1. Hãy PHÂN TÍCH KỸ "LỜI GIẢI CHI TIẾT (BAREM CHẤM)" ở trên để xác định TỔNG ĐIỂM TỐI ĐA (maxScore) của câu hỏi này. (Ví dụ: 1.0, 2.0, v.v)
+                2. Chấm điểm bài làm (score) của học sinh một cách chặt chẽ theo từng bước dựa vào barem đó. 
+                3. Nhận xét chi tiết (feedback) bài làm đúng chỗ nào sai chỗ nào so với barem.
+                4. Nếu học sinh có cách giải khác hợp lý, kết quả đúng thì vẫn cho điểm dựa trên thang điểm tối đa.
+                
+                Trả về JSON: { "maxScore": number, "score": number, "feedback": string }
               `;
 
               const response = await ai.models.generateContent({
@@ -172,10 +177,11 @@ export default function TakeExam() {
                   responseSchema: {
                     type: Type.OBJECT,
                     properties: {
+                      maxScore: { type: Type.NUMBER },
                       score: { type: Type.NUMBER },
                       feedback: { type: Type.STRING }
                     },
-                    required: ["score", "feedback"]
+                    required: ["maxScore", "score", "feedback"]
                   }
                 }
               });

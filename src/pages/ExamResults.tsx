@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../lib/AuthContext';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, query, where, getDocs, doc, getDoc, deleteDoc, updateDoc } from 'firebase/firestore';
-import { ArrowLeft, Users, CheckCircle, XCircle, Trash2, AlertCircle, BarChart3, Loader2, RefreshCw, Eye, BookOpen, Brain } from 'lucide-react';
+import { ArrowLeft, Users, CheckCircle, XCircle, Trash2, AlertCircle, BarChart3, Loader2, RefreshCw, Eye, BookOpen, Brain, FileText } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList } from 'recharts';
 import MathText from '../components/MathText';
 import { GoogleGenAI, Type } from '@google/genai';
@@ -230,14 +230,15 @@ export default function ExamResults() {
         ${q.explanation || ""}
 
         HÃY PHÂN TÍCH ẢNH BÀI LÀM VÀ THỰC HIỆN:
-        1. Chấm điểm bài làm trên thang điểm từ 0 đến 1.0. 
-           QUAN TRỌNG: Hãy bám sát các bước trong LỜI GIẢI CHI TIẾT để chấm điểm thành phần nếu bài làm chưa hoàn thiện.
-        2. Nhận xét chi tiết về bài làm (ưu điểm, lỗi sai, các bước thiếu).
-        3. Nếu học sinh có cách giải khác nhưng vẫn đúng logic và kết quả, hãy vẫn cho điểm tối đa.
+        1. Hãy PHÂN TÍCH KỸ "LỜI GIẢI CHI TIẾT / HƯỚNG DẪN CHẤM" ở trên để xác định TỔNG ĐIỂM TỐI ĐA (maxScore) của câu hỏi này. (Thường là 1.0, 2.0, v.v)
+        2. Chấm điểm bài làm (score) một cách chặt chẽ theo từng bước dựa vào barem đó.
+        3. Nhận xét chi tiết (feedback) về bài làm (ưu điểm, lỗi sai, các bước thiếu so với barem).
+        4. Nếu học sinh có cách giải khác hợp lý và kết quả đúng, vẫn cho điểm dựa trên thang điểm tối đa.
 
         Hãy trả về kết quả dưới dạng JSON:
         {
-          "score": number, // Điểm số từ 0 đến 1.0 (Bước nhảy 0.25 hoặc 0.1)
+          "maxScore": number, // Tổng điểm tối đa của câu hỏi theo barem
+          "score": number, // Điểm số bài làm đạt được
           "feedback": string // Nhận xét chi tiết của giáo viên
         }
       `;
@@ -263,10 +264,11 @@ export default function ExamResults() {
           responseSchema: {
             type: Type.OBJECT,
             properties: {
+              maxScore: { type: Type.NUMBER },
               score: { type: Type.NUMBER },
               feedback: { type: Type.STRING }
             },
-            required: ["score", "feedback"]
+            required: ["maxScore", "score", "feedback"]
           }
         }
       });
@@ -494,26 +496,27 @@ export default function ExamResults() {
                         <Trash2 className="w-5 h-5" />
                       </button>
                     </div>
-                    {sub.incorrectQuestions && sub.incorrectQuestions.length > 0 ? (
-                      <div className="text-sm text-rose-600 flex items-center justify-between sm:justify-end mt-3 bg-rose-50/50 px-3 py-2 rounded-lg border border-rose-100 w-full sm:w-auto">
-                        <div className="flex items-center font-bold mr-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end mt-3 gap-2 w-full sm:w-auto">
+                      {sub.incorrectQuestions && sub.incorrectQuestions.length > 0 ? (
+                        <div className="text-sm text-rose-600 flex items-center bg-rose-50/50 px-3 py-2 rounded-lg border border-rose-100 font-bold w-full sm:w-auto">
                           <XCircle className="w-4 h-4 mr-1.5" />
                           {sub.incorrectQuestions.length} câu sai
                         </div>
-                        <button
-                          onClick={() => handleViewDetails(sub.id)}
-                          className="flex items-center text-xs font-bold bg-white border border-rose-200 text-rose-600 px-3 py-1.5 rounded-md hover:bg-rose-50 transition-colors shadow-sm"
-                        >
-                          <Eye className="w-3.5 h-3.5 mr-1.5" />
-                          Xem chi tiết
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="text-sm text-emerald-600 flex items-center sm:justify-end mt-3 bg-emerald-50/50 px-3 py-2 rounded-lg border border-emerald-100 font-bold">
-                        <CheckCircle className="w-4 h-4 mr-1.5" />
-                        Hoàn hảo! Không sai câu nào.
-                      </div>
-                    )}
+                      ) : (
+                        <div className="text-sm text-emerald-600 flex items-center bg-emerald-50/50 px-3 py-2 rounded-lg border border-emerald-100 font-bold w-full sm:w-auto">
+                          <CheckCircle className="w-4 h-4 mr-1.5" />
+                          Hoàn hảo! (Hoặc cần chấm tự luận)
+                        </div>
+                      )}
+                      
+                      <button
+                        onClick={() => handleViewDetails(sub.id)}
+                        className="flex items-center justify-center text-xs font-bold bg-white border border-indigo-200 text-indigo-600 px-3 py-1.5 rounded-md hover:bg-indigo-50 transition-colors shadow-sm"
+                      >
+                        <Eye className="w-3.5 h-3.5 mr-1.5" />
+                        Xem chi tiết bài làm
+                      </button>
+                    </div>
                   </div>
                 </div>
               </li>
@@ -559,8 +562,8 @@ export default function ExamResults() {
           <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
             <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
               <h3 className="text-xl font-bold text-gray-900 flex items-center">
-                <XCircle className="w-6 h-6 text-rose-500 mr-2" />
-                Chi tiết các câu trả lời sai
+                <FileText className="w-6 h-6 text-indigo-500 mr-2" />
+                Chi tiết bài làm của học sinh
               </h3>
               <button 
                 onClick={closeDetails}
@@ -577,10 +580,9 @@ export default function ExamResults() {
                   return <div className="flex justify-center items-center h-32"><Loader2 className="w-8 h-8 animate-spin text-indigo-500" /></div>;
                 }
                 
-                // Group incorrect questions and essay questions
-                const essayQuestions = exam.questions.filter((q: any) => q.type === 'essay');
+                // Show ALL questions so the teacher can see what's correct and what's wrong
+                const questionsToShow = exam.questions.map((q: any) => q.id);
                 const incorrectIds = sub.incorrectQuestions || [];
-                const questionsToShow = Array.from(new Set([...incorrectIds, ...essayQuestions.map((q: any) => q.id)]));
                 
                 return (
                   <div className="space-y-6">
@@ -599,6 +601,8 @@ export default function ExamResults() {
                       if (!q) return null;
                       
                       const isEssay = q.type === 'essay';
+                      const isIncorrect = incorrectIds.includes(String(q.id));
+                      const isCorrect = !isEssay && !isIncorrect;
                       
                       let studentAns: any = '';
                       try {
@@ -613,10 +617,10 @@ export default function ExamResults() {
                       const grade = essayGradesMap[qId];
                       
                       return (
-                        <div key={qId} className={`bg-white p-5 rounded-xl border ${isEssay ? 'border-indigo-100' : 'border-rose-100'} shadow-sm`}>
+                        <div key={qId} className={`bg-white p-5 rounded-xl border ${isEssay ? 'border-indigo-100' : isCorrect ? 'border-emerald-200' : 'border-rose-200'} shadow-sm`}>
                           <div className="flex justify-between items-center mb-3 pb-2 border-b border-gray-100">
-                            <div className={`font-bold text-lg ${isEssay ? 'text-indigo-700' : 'text-rose-700'}`}>
-                              Câu {qIndex !== -1 ? qIndex + 1 : '?'} ({isEssay ? 'Tự luận' : 'Câu sai'})
+                            <div className={`font-bold text-lg ${isEssay ? 'text-indigo-700' : isCorrect ? 'text-emerald-700' : 'text-rose-700'}`}>
+                              Câu {qIndex !== -1 ? qIndex + 1 : '?'} ({isEssay ? 'Tự luận' : isCorrect ? 'Đúng' : 'Sai'})
                             </div>
                             {isEssay && (
                               <button
@@ -647,13 +651,28 @@ export default function ExamResults() {
                               <div className="mt-4 space-y-2">
                                 {q.options.map((opt: string, i: number) => {
                                   const letter = q.type === 'true_false' ? String.fromCharCode(97 + i) : String.fromCharCode(65 + i);
+                                  const isCheckedByStudent = q.type === 'true_false' ? studentAns && studentAns[i] : studentAns === opt;
                                   return (
-                                    <div key={i} className="flex items-start text-sm">
+                                    <div key={i} className={`flex items-start text-sm p-2 rounded ${isCheckedByStudent ? (isCorrect ? 'bg-emerald-100' : 'bg-rose-100 font-medium') : ''}`}>
                                       <span className="font-semibold mr-2">{letter}.</span>
                                       <MathText text={opt} />
+                                      {isCheckedByStudent && (
+                                        <span className={`ml-2 text-xs font-bold ${isCorrect ? 'text-emerald-700' : 'text-rose-600'}`}>
+                                          (Học sinh chọn)
+                                        </span>
+                                      )}
                                     </div>
                                   );
                                 })}
+                              </div>
+                            )}
+
+                            {q.type === 'short_answer' && (
+                              <div className="mt-4">
+                                <span className="font-semibold mr-2">Đáp án học sinh nhập:</span>
+                                <span className={isCorrect ? 'text-emerald-600 font-bold' : 'text-rose-600 font-bold'}>
+                                  {studentAns || "(Bỏ trống)"}
+                                </span>
                               </div>
                             )}
                           </div>
