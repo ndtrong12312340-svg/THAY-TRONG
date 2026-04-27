@@ -159,7 +159,7 @@ export default function TakeExam() {
               `;
 
               const response = await ai.models.generateContent({
-                model: 'gemini-3-flash-preview',
+                model: 'gemini-1.5-flash',
                 contents: [{
                   role: 'user',
                   parts: [
@@ -230,8 +230,25 @@ export default function TakeExam() {
       });
 
       setSubmittedResult({ score: finalScore, incorrectQuestions });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, 'submissions');
+    } catch (err: any) {
+      console.error("Submission error details:", err);
+      
+      let errorMsg = "Nộp bài thất bại. ";
+      try {
+        // Try to parse JSON error from handleFirestoreError if possible
+        const parsed = JSON.parse(err.message);
+        if (parsed.error) errorMsg += parsed.error;
+      } catch (e) {
+        errorMsg += err.message || "Vui lòng kiểm tra kết nối mạng và thử lại.";
+      }
+      
+      setError(errorMsg);
+      // Still call handleFirestoreError for logging benefits
+      try {
+        handleFirestoreError(err, OperationType.CREATE, 'submissions');
+      } catch (logErr) {
+        // Ignore secondary error from logger
+      }
     } finally {
       setIsSubmitting(false);
     }

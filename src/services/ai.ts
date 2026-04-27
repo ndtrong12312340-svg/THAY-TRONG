@@ -1,7 +1,18 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { ExerciseQuestion } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+let genAI: GoogleGenAI | null = null;
+
+function getAI() {
+  if (!genAI) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error("Chưa cấu hình Gemini API Key. Vui lòng thêm trong Vercel/Environment Variables.");
+    }
+    genAI = new GoogleGenAI({ apiKey });
+  }
+  return genAI;
+}
 
 export async function generateExercise(
   topic: string,
@@ -15,8 +26,9 @@ Với mỗi câu hỏi, hãy cung cấp câu hỏi, các lựa chọn (nếu là
 Ngôn ngữ: Tiếng Việt.`;
 
   try {
+    const ai = getAI();
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-1.5-flash",
       contents: prompt,
       config: {
         responseMimeType: "application/json",

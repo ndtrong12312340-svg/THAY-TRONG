@@ -59,8 +59,8 @@ service cloud.firestore {
       return data.examId is string && data.examId.size() > 0 && data.examId.size() < 100 &&
              data.studentId is string && data.studentId.size() > 0 && data.studentId.size() < 100 &&
              data.answers is string && data.answers.size() < 20000 &&
-             (!('essayImages' in data) || (data.essayImages is string && data.essayImages.size() < 1000 * 1024)) &&
-             data.score is number && data.score >= 0 && data.score <= 10 &&
+             (!('essayImages' in data) || (data.essayImages is string && data.essayImages.size() < 10 * 1024 * 1024)) &&
+             data.score is number && data.score >= 0 && data.score <= 100 &&
              (!('status' in data) || data.status in ['submitted', 'graded']) &&
              data.incorrectQuestions is list && data.incorrectQuestions.size() <= 120 &&
              data.submittedAt is string;

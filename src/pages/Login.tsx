@@ -23,6 +23,8 @@ export default function Login() {
         setError('Lỗi kết nối mạng hoặc trình duyệt chặn popup/cookie. Vui lòng thử mở ứng dụng trong tab mới (nhấn vào biểu tượng mở tab mới ở góc trên bên phải) hoặc tắt trình chặn quảng cáo.');
       } else if (err.code === 'auth/popup-closed-by-user') {
         setError('Bạn đã đóng cửa sổ đăng nhập trước khi hoàn tất. Vui lòng thử lại.');
+      } else if (err.code === 'auth/unauthorized-domain' || err.message?.includes('unauthorized-domain')) {
+        setError('Tên miền này chưa được cấp phép. Admin cần thêm tên miền của trang Vercel vào "Authorized Domains" trong Firebase Console: https://console.firebase.google.com/project/seismic-honor-492901-g3/auth/providers');
       } else {
         setError(err.message || 'Lỗi đăng nhập Google');
       }
