@@ -147,18 +147,26 @@ export default function TakeExam() {
           if (images.length > 0) {
             try {
               const prompt = `
-                Bạn là một giáo viên chuyên nghiệp. Chấm điểm bài làm tự luận dựa trên ảnh.
+                Bạn là một giám khảo chấm thi vô cùng nghiêm ngặt và chính xác. 
+                Nhiệm vụ của bạn là tự động chấm điểm bài làm tự luận của học sinh dựa trên ảnh chụp, ĐÁP ÁN và BAREM ĐIỂM do giáo viên cung cấp.
+                
                 CÂU HỎI: ${q.content}
-                ĐÁP ÁN: ${q.correctAnswer || ""}
-                LỜI GIẢI CHI TIẾT (BAREM CHẤM): ${q.explanation || "Không có barem cụ thể (mặc định 1.0 điểm)."}
+                ĐÁP ÁN CHUẨN CỦA GIÁO VIÊN: ${q.correctAnswer || ""}
+                BAREM ĐIỂM / LỜI GIẢI CHI TIẾT: ${q.explanation || "Không có barem cụ thể (mặc định tổng điểm câu này là 1.0 điểm)."}
                 
-                YÊU CẦU: 
-                1. Hãy PHÂN TÍCH KỸ "LỜI GIẢI CHI TIẾT (BAREM CHẤM)" ở trên để xác định TỔNG ĐIỂM TỐI ĐA (maxScore) của câu hỏi này. (Ví dụ: 1.0, 2.0, v.v)
-                2. Chấm điểm bài làm (score) của học sinh một cách chặt chẽ theo từng bước dựa vào barem đó. 
-                3. Nhận xét chi tiết (feedback) bài làm đúng chỗ nào sai chỗ nào so với barem.
-                4. Nếu học sinh có cách giải khác hợp lý, kết quả đúng thì vẫn cho điểm dựa trên thang điểm tối đa.
+                QUY TẮC CHẤM ĐIỂM BẮT BUỘC (MỆNH LỆNH):
+                1. XÁC ĐỊNH ĐIỂM TỐI ĐA (maxScore): Hãy đọc kỹ BAREM ĐIỂM để xác định tổng điểm tối đa của câu hỏi này. Nếu không tìm thấy, mặc định maxScore = 1.0.
+                2. SO SÁNH TRỰC TIẾP: Đối chiếu bài làm của học sinh với ĐÁP ÁN CHUẨN và BAREM ĐIỂM. 
+                3. TÍNH ĐIỂM BƯỚC: Chỉ cho điểm những ý/bước đã làm đúng theo phân bổ điểm của từng câu mà giáo viên đã cho trong barem. Thiếu bước nào trừ điểm bước đó.
+                4. KHÔNG VƯỢT TRẦN: ĐIỂM SỐ (score) TUYỆT ĐỐI KHÔNG ĐƯỢC CHẤM QUÁ SỐ ĐIỂM CỦA CÂU ĐÓ TRONG BAREM (score <= maxScore).
+                5. CÁCH GIẢI KHÁC: Nếu học sinh giải bằng cách khác hợp logic và ra cùng đáp án, hãy cho điểm tương đương. Nếu kết quả sai, chỉ cho điểm quá trình làm đúng.
                 
-                Trả về JSON: { "maxScore": number, "score": number, "feedback": string }
+                TRẢ VỀ KẾT QUẢ DƯỚI DẠNG JSON CHUẨN: 
+                { 
+                  "maxScore": number, // Tổng số điểm của câu hỏi theo barem
+                  "score": number, // Điểm số thực tế mà học sinh đạt được (đảm bảo <= maxScore)
+                  "feedback": string // Nhận xét rõ ràng: đúng/sai chỗ nào so với barem, lý do trừ điểm là gì.
+                }
               `;
 
               const response = await ai.models.generateContent({

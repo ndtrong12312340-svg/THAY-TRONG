@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../lib/AuthContext';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, query, where, getDocs, doc, getDoc, deleteDoc, updateDoc } from 'firebase/firestore';
-import { ArrowLeft, Users, CheckCircle, XCircle, Trash2, AlertCircle, BarChart3, Loader2, RefreshCw, Eye, BookOpen, Brain, FileText } from 'lucide-react';
+import { ArrowLeft, Users, CheckCircle, XCircle, Trash2, AlertCircle, BarChart3, Loader2, RefreshCw, Eye, BookOpen, Brain, FileText, MessageCircle } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList } from 'recharts';
 import MathText from '../components/MathText';
 import { GoogleGenAI, Type } from '@google/genai';
@@ -217,29 +217,30 @@ export default function ExamResults() {
 
       // Build prompt for AI grading
       const prompt = `
-        Bạn là một giáo viên chấm thi chuyên nghiệp.
-        Nhiệm vụ của bạn là chấm điểm bài làm tự luận của học sinh dựa trên ảnh chụp bài làm.
+        Bạn là một giám khảo chấm thi vô cùng nghiêm ngặt và chính xác. 
+        Nhiệm vụ của bạn là tự động chấm điểm bài làm tự luận của học sinh dựa trên ảnh chụp bài làm, ĐÁP ÁN và BAREM ĐIỂM do giáo viên cung cấp.
 
         CÂU HỎI:
         ${q.content}
 
-        ĐÁP ÁN MẪU:
+        ĐÁP ÁN CHUẨN CỦA GIÁO VIÊN:
         ${q.correctAnswer || ""}
 
-        LỜI GIẢI CHI TIẾT / HƯỚNG DẪN CHẤM:
-        ${q.explanation || ""}
+        BAREM ĐIỂM / LỜI GIẢI CHI TIẾT:
+        ${q.explanation || "Không có barem cụ thể (mặc định tổng điểm câu này là 1.0 điểm)."}
 
-        HÃY PHÂN TÍCH ẢNH BÀI LÀM VÀ THỰC HIỆN:
-        1. Hãy PHÂN TÍCH KỸ "LỜI GIẢI CHI TIẾT / HƯỚNG DẪN CHẤM" ở trên để xác định TỔNG ĐIỂM TỐI ĐA (maxScore) của câu hỏi này. (Thường là 1.0, 2.0, v.v)
-        2. Chấm điểm bài làm (score) một cách chặt chẽ theo từng bước dựa vào barem đó.
-        3. Nhận xét chi tiết (feedback) về bài làm (ưu điểm, lỗi sai, các bước thiếu so với barem).
-        4. Nếu học sinh có cách giải khác hợp lý và kết quả đúng, vẫn cho điểm dựa trên thang điểm tối đa.
+        QUY TẮC CHẤM ĐIỂM BẮT BUỘC (MỆNH LỆNH):
+        1. XÁC ĐỊNH ĐIỂM TỐI ĐA (maxScore): Hãy đọc kỹ BAREM ĐIỂM để xác định tổng điểm tối đa của câu hỏi này. Nếu không tìm thấy, mặc định maxScore = 1.0.
+        2. SO SÁNH TRỰC TIẾP: Đối chiếu bài làm của học sinh với ĐÁP ÁN CHUẨN và BAREM ĐIỂM. 
+        3. TÍNH ĐIỂM BƯỚC: Chỉ cho điểm những ý/bước đã làm đúng theo phân bổ điểm của từng câu mà giáo viên đã cho trong barem. Thiếu bước nào trừ điểm bước đó.
+        4. KHÔNG VƯỢT TRẦN: ĐIỂM SỐ (score) TUYỆT ĐỐI KHÔNG ĐƯỢC CHẤM QUÁ SỐ ĐIỂM CỦA CÂU ĐÓ TRONG BAREM (score <= maxScore).
+        5. CÁCH GIẢI KHÁC: Nếu học sinh giải bằng cách khác hợp logic và ra cùng đáp án, hãy cho điểm tương đương. Nếu kết quả sai, chỉ cho điểm quá trình làm đúng.
 
-        Hãy trả về kết quả dưới dạng JSON:
+        TRẢ VỀ KẾT QUẢ DƯỚI DẠNG JSON CHUẨN:
         {
-          "maxScore": number, // Tổng điểm tối đa của câu hỏi theo barem
-          "score": number, // Điểm số bài làm đạt được
-          "feedback": string // Nhận xét chi tiết của giáo viên
+          "maxScore": number, // Tổng số điểm của câu hỏi theo barem
+          "score": number, // Điểm số thực tế mà học sinh đạt được (đảm bảo <= maxScore)
+          "feedback": string // Nhận xét rõ ràng: đúng/sai chỗ nào so với barem, lý do trừ điểm là gì.
         }
       `;
 
@@ -461,7 +462,9 @@ export default function ExamResults() {
                 </div>
                 Chưa có học sinh nào nộp bài.
               </li>
-            ) : uniqueSubmissions.map((sub) => (
+            ) : uniqueSubmissions.map((sub) => {
+              const student = students.find(s => s.uid === sub.studentId);
+              return (
               <li key={sub.id} className="px-6 py-6 hover:bg-gray-50/50 transition-colors">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex items-center mb-4 sm:mb-0">
@@ -469,7 +472,7 @@ export default function ExamResults() {
                       <Users className="h-6 w-6 text-indigo-600" />
                     </div>
                     <div className="ml-5">
-                      <h3 className="text-lg font-bold text-gray-900">{getStudentName(sub.studentId)}</h3>
+                      <h3 className="text-lg font-bold text-gray-900">{student ? `${student.name} (${student.className})` : 'Học sinh không xác định'}</h3>
                       <p className="text-sm font-medium text-gray-500 mt-0.5">
                         Nộp lúc: {new Date(sub.submittedAt).toLocaleString('vi-VN')}
                       </p>
@@ -480,6 +483,37 @@ export default function ExamResults() {
                       <div className="bg-indigo-50 px-4 py-2 rounded-xl border border-indigo-100 mr-4">
                         <p className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-purple-600">{sub.score.toFixed(2)} <span className="text-base text-indigo-300 font-bold">/ 10</span></p>
                       </div>
+                      
+                      {student && student.phone && (
+                        <button
+                          onClick={() => {
+                            const text = `🎉 KẾT QUẢ BÀI THI 🎉\n\nChào ${student.name}, em đã hoàn thành bài thi: "${exam.title}"\n\n🎯 Điểm số: ${sub.score.toFixed(2)} / 10 điểm.\n👉 Hãy tiếp tục cố gắng nhé!\n🔗 Xem lại bài làm: https://thay-trong.vercel.app`;
+                            navigator.clipboard.writeText(text);
+                            alert('Đã copy thông báo điểm vào khay nhớ tạm. Dán (Ctrl+V) vào Zalo của học sinh để gửi!');
+                            window.open(`https://chat.zalo.me/?phone=${student.phone.replace(/[^0-9]/g, '')}`, '_blank');
+                          }}
+                          className="text-blue-500 hover:text-blue-700 p-2.5 rounded-xl hover:bg-blue-50 transition-colors border border-transparent hover:border-blue-100 mr-2"
+                          title="Gửi kết quả điểm qua Zalo"
+                        >
+                          <MessageCircle className="w-5 h-5" />
+                        </button>
+                      )}
+                      
+                      {student && student.facebook && (
+                        <button
+                          onClick={() => {
+                            const text = `🎉 KẾT QUẢ BÀI THI 🎉\n\nChào ${student.name}, em đã hoàn thành bài thi: "${exam.title}"\n\n🎯 Điểm số: ${sub.score.toFixed(2)} / 10 điểm.\n👉 Hãy tiếp tục cố gắng nhé!\n🔗 Xem lại bài làm: https://thay-trong.vercel.app`;
+                            navigator.clipboard.writeText(text);
+                            alert('Đã copy thông báo điểm vào khay nhớ tạm. Dán (Ctrl+V) vào Facebook của học sinh để gửi!');
+                            window.open(student.facebook, '_blank');
+                          }}
+                          className="text-indigo-500 hover:text-indigo-700 p-2.5 rounded-xl hover:bg-indigo-50 transition-colors border border-transparent hover:border-indigo-100 mr-2"
+                          title="Gửi kết quả điểm qua Facebook"
+                        >
+                          <MessageCircle className="w-5 h-5" />
+                        </button>
+                      )}
+
                       <button
                         onClick={() => handleRegrade(sub)}
                         disabled={regradingId === sub.id}
@@ -520,7 +554,8 @@ export default function ExamResults() {
                   </div>
                 </div>
               </li>
-            ))}
+            );
+            })}
           </ul>
         </div>
       </div>
