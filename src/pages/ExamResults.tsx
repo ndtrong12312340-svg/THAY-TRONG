@@ -244,39 +244,59 @@ export default function ExamResults() {
         }
       `;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              ...images.map((img: string) => ({
-                inlineData: {
-                  mimeType: 'image/jpeg',
-                  data: img.split(',')[1]
-                }
-              })),
-              { text: prompt }
-            ]
-          }
-        ],
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              maxScore: { type: Type.NUMBER },
-              score: { type: Type.NUMBER },
-              feedback: { type: Type.STRING }
-            },
-            required: ["maxScore", "score", "feedback"]
+      let grading = { score: 0, feedback: '' };
+      let attempts = 0;
+      let graded = false;
+
+      while (attempts < 3 && !graded) {
+        try {
+          const response = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: [
+              {
+                role: 'user',
+                parts: [
+                  ...images.map((img: string) => ({
+                    inlineData: {
+                      mimeType: 'image/jpeg',
+                      data: img.split(',')[1]
+                    }
+                  })),
+                  { text: prompt }
+                ]
+              }
+            ],
+            config: {
+              responseMimeType: 'application/json',
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  maxScore: { type: Type.NUMBER },
+                  score: { type: Type.NUMBER },
+                  feedback: { type: Type.STRING }
+                },
+                required: ["maxScore", "score", "feedback"]
+              }
+            }
+          });
+
+          const responseText = response.text || '';
+          const cleanJson = responseText.replace(/```json|```/g, '').trim();
+          grading = JSON.parse(cleanJson || '{}');
+          graded = true;
+        } catch (aiErr) {
+          attempts++;
+          console.error(`AI Grading failed for question ${questionId}, attempt ${attempts}`, aiErr);
+          if (attempts >= 3) {
+            alert('Lỗi khi liên hệ AI chấm điểm. Vui lòng thử lại sau hoặc chấm thủ công.');
+            setIsGradingEssay(null);
+            return;
+          } else {
+            // Wait before retrying
+            await new Promise(resolve => setTimeout(resolve, 2000 * attempts));
           }
         }
-      });
-
-      const responseText = response.text || '';
-      const cleanJson = responseText.replace(/```json|```/g, '').trim();
-      const grading = JSON.parse(cleanJson || '{}');
+      }
       
       // Update submission with essay score
       // We need to be careful with existing total score

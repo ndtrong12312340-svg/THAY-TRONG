@@ -145,68 +145,83 @@ export default function TakeExam() {
         for (const q of essayQuestions) {
           const images = essayImages[q.id] || [];
           if (images.length > 0) {
-            try {
-              const prompt = `
-                Bạn là một giám khảo chấm thi vô cùng nghiêm ngặt và chính xác. 
-                Nhiệm vụ của bạn là tự động chấm điểm bài làm tự luận của học sinh dựa trên ảnh chụp, ĐÁP ÁN và BAREM ĐIỂM do giáo viên cung cấp.
-                
-                CÂU HỎI: ${q.content}
-                ĐÁP ÁN CHUẨN CỦA GIÁO VIÊN: ${q.correctAnswer || ""}
-                BAREM ĐIỂM / LỜI GIẢI CHI TIẾT: ${q.explanation || "Không có barem cụ thể (mặc định tổng điểm câu này là 1.0 điểm)."}
-                
-                QUY TẮC CHẤM ĐIỂM BẮT BUỘC (MỆNH LỆNH):
-                1. XÁC ĐỊNH ĐIỂM TỐI ĐA (maxScore): Hãy đọc kỹ BAREM ĐIỂM để xác định tổng điểm tối đa của câu hỏi này. Nếu không tìm thấy, mặc định maxScore = 1.0.
-                2. SO SÁNH TRỰC TIẾP: Đối chiếu bài làm của học sinh với ĐÁP ÁN CHUẨN và BAREM ĐIỂM. 
-                3. TÍNH ĐIỂM BƯỚC: Chỉ cho điểm những ý/bước đã làm đúng theo phân bổ điểm của từng câu mà giáo viên đã cho trong barem. Thiếu bước nào trừ điểm bước đó.
-                4. KHÔNG VƯỢT TRẦN: ĐIỂM SỐ (score) TUYỆT ĐỐI KHÔNG ĐƯỢC CHẤM QUÁ SỐ ĐIỂM CỦA CÂU ĐÓ TRONG BAREM (score <= maxScore).
-                5. CÁCH GIẢI KHÁC: Nếu học sinh giải bằng cách khác hợp logic và ra cùng đáp án, hãy cho điểm tương đương. Nếu kết quả sai, chỉ cho điểm quá trình làm đúng.
-                
-                TRẢ VỀ KẾT QUẢ DƯỚI DẠNG JSON CHUẨN: 
-                { 
-                  "maxScore": number, // Tổng số điểm của câu hỏi theo barem
-                  "score": number, // Điểm số thực tế mà học sinh đạt được (đảm bảo <= maxScore)
-                  "feedback": string // Nhận xét rõ ràng: đúng/sai chỗ nào so với barem, lý do trừ điểm là gì.
-                }
-              `;
+            let attempts = 0;
+            let graded = false;
 
-              const response = await ai.models.generateContent({
-                model: 'gemini-3-flash-preview',
-                contents: [{
-                  role: 'user',
-                  parts: [
-                    ...images.map((img: string) => ({
-                      inlineData: { mimeType: 'image/jpeg', data: img.split(',')[1] }
-                    })),
-                    { text: prompt }
-                  ]
-                }],
-                config: {
-                  responseMimeType: 'application/json',
-                  responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                      maxScore: { type: Type.NUMBER },
-                      score: { type: Type.NUMBER },
-                      feedback: { type: Type.STRING }
-                    },
-                    required: ["maxScore", "score", "feedback"]
+            while (attempts < 3 && !graded) {
+              try {
+                const prompt = `
+                  Bạn là một giám khảo chấm thi vô cùng nghiêm ngặt và chính xác. 
+                  Nhiệm vụ của bạn là tự động chấm điểm bài làm tự luận của học sinh dựa trên ảnh chụp, ĐÁP ÁN và BAREM ĐIỂM do giáo viên cung cấp.
+                  
+                  CÂU HỎI: ${q.content}
+                  ĐÁP ÁN CHUẨN CỦA GIÁO VIÊN: ${q.correctAnswer || ""}
+                  BAREM ĐIỂM / LỜI GIẢI CHI TIẾT: ${q.explanation || "Không có barem cụ thể (mặc định tổng điểm câu này là 1.0 điểm)."}
+                  
+                  QUY TẮC CHẤM ĐIỂM BẮT BUỘC (MỆNH LỆNH):
+                  1. XÁC ĐỊNH ĐIỂM TỐI ĐA (maxScore): Hãy đọc kỹ BAREM ĐIỂM để xác định tổng điểm tối đa của câu hỏi này. Nếu không tìm thấy, mặc định maxScore = 1.0.
+                  2. SO SÁNH TRỰC TIẾP: Đối chiếu bài làm của học sinh với ĐÁP ÁN CHUẨN và BAREM ĐIỂM. 
+                  3. TÍNH ĐIỂM BƯỚC: Chỉ cho điểm những ý/bước đã làm đúng theo phân bổ điểm của từng câu mà giáo viên đã cho trong barem. Thiếu bước nào trừ điểm bước đó.
+                  4. KHÔNG VƯỢT TRẦN: ĐIỂM SỐ (score) TUYỆT ĐỐI KHÔNG ĐƯỢC CHẤM QUÁ SỐ ĐIỂM CỦA CÂU ĐÓ TRONG BAREM (score <= maxScore).
+                  5. CÁCH GIẢI KHÁC: Nếu học sinh giải bằng cách khác hợp logic và ra cùng đáp án, hãy cho điểm tương đương. Nếu kết quả sai, chỉ cho điểm quá trình làm đúng.
+                  
+                  TRẢ VỀ KẾT QUẢ DƯỚI DẠNG JSON CHUẨN: 
+                  { 
+                    "maxScore": number, // Tổng số điểm của câu hỏi theo barem
+                    "score": number, // Điểm số thực tế mà học sinh đạt được (đảm bảo <= maxScore)
+                    "feedback": string // Nhận xét rõ ràng: đúng/sai chỗ nào so với barem, lý do trừ điểm là gì.
                   }
-                }
-              });
+                `;
 
-              const responseText = response.text || '';
-              const cleanJson = responseText.replace(/```json|```/g, '').trim();
-              const grading = JSON.parse(cleanJson || '{}');
-              essayGrades[q.id] = grading;
-              finalScore += Number(grading.score || 0);
-              
-              if (Number(grading.score || 0) === 0) {
-                incorrectQuestions.push(q.id);
+                const response = await ai.models.generateContent({
+                  model: 'gemini-3-flash-preview',
+                  contents: [{
+                    role: 'user',
+                    parts: [
+                      ...images.map((img: string) => ({
+                        inlineData: { mimeType: 'image/jpeg', data: img.split(',')[1] }
+                      })),
+                      { text: prompt }
+                    ]
+                  }],
+                  config: {
+                    responseMimeType: 'application/json',
+                    responseSchema: {
+                      type: Type.OBJECT,
+                      properties: {
+                        maxScore: { type: Type.NUMBER },
+                        score: { type: Type.NUMBER },
+                        feedback: { type: Type.STRING }
+                      },
+                      required: ["maxScore", "score", "feedback"]
+                    }
+                  }
+                });
+
+                const responseText = response.text || '';
+                const cleanJson = responseText.replace(/```json|```/g, '').trim();
+                const grading = JSON.parse(cleanJson || '{}');
+                essayGrades[q.id] = grading;
+                finalScore += Number(grading.score || 0);
+                
+                if (Number(grading.score || 0) === 0) {
+                  incorrectQuestions.push(q.id);
+                }
+                graded = true; // Success
+                
+                // Add a small delay between successful requests to respect rate limits
+                await new Promise(resolve => setTimeout(resolve, 1000));
+              } catch (aiErr) {
+                attempts++;
+                console.error(`AI Grading failed for question ${q.id}, attempt ${attempts}`, aiErr);
+                if (attempts >= 3) {
+                  essayGrades[q.id] = { score: 0, feedback: "Lỗi khi chấm điểm tự động. Vui lòng báo giáo viên xem xét." };
+                  incorrectQuestions.push(q.id);
+                } else {
+                  // Wait before retrying (rate limit etc)
+                  await new Promise(resolve => setTimeout(resolve, 2000 * attempts));
+                }
               }
-            } catch (aiErr) {
-              console.error("AI Grading failed for question", q.id, aiErr);
-              essayGrades[q.id] = { score: 0, feedback: "Lỗi khi chấm điểm tự động. Vui lòng đợi giáo viên xem xét." };
-              incorrectQuestions.push(q.id);
             }
           } else {
             essayGrades[q.id] = { score: 0, feedback: "Học sinh không nộp bài giải." };
