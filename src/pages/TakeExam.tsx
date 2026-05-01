@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/AuthContext';
 import { db, storage, handleFirestoreError, OperationType, syncStudentSubmissionIndex } from '../lib/firebase';
-import { doc, getDoc, addDoc, collection, updateDoc, arrayUnion } from 'firebase/firestore';
+import { doc, getDoc, setDoc, addDoc, collection, updateDoc, arrayUnion } from 'firebase/firestore';
 import { ref, uploadString, getDownloadURL } from 'firebase/storage';
 import { GoogleGenAI, Type } from '@google/genai';
 import { getAI } from '../services/ai';
@@ -25,6 +25,7 @@ export default function TakeExam() {
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [submittedResult, setSubmittedResult] = useState<{score: number, incorrectQuestions: string[]} | null>(null);
+  const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
 
   useEffect(() => {
     const fetchExam = async () => {
@@ -65,7 +66,8 @@ export default function TakeExam() {
 
   useEffect(() => {
     if (timeLeft === null || timeLeft <= 0) {
-      if (timeLeft === 0 && !isSubmitting) {
+      if (timeLeft === 0 && !isSubmitting && !hasAttemptedSubmit) {
+        setHasAttemptedSubmit(true);
         handleSubmit();
       }
       return;
@@ -138,6 +140,23 @@ export default function TakeExam() {
       let finalScore = score;
       let essayGrades: Record<string, any> = {};
       const essayQuestions = exam.questions.filter((q: any) => q.type === 'essay');
+
+      // Convert essayImages (Base64) to Firestore documents to prevent 1MB document limit
+      const essayImageRefs: Record<string, string[]> = {};
+      for (const qId of Object.keys(essayImages)) {
+        essayImageRefs[qId] = [];
+        for (let i = 0; i < essayImages[qId].length; i++) {
+          const b64 = essayImages[qId][i];
+          const imgDocRef = await addDoc(collection(db, 'submission_images'), {
+            examId: exam.id,
+            studentId: appUser.uid,
+            questionId: qId,
+            base64Data: b64,
+            createdAt: new Date().toISOString()
+          });
+          essayImageRefs[qId].push(imgDocRef.id);
+        }
+      }
 
       // Automatic AI grading for essays if they exist - Optimized Batching
       if (essayQuestions.length > 0) {
@@ -283,7 +302,7 @@ export default function TakeExam() {
         examId: exam.id,
         studentId: appUser.uid,
         answers: JSON.stringify(answers),
-        essayImages: JSON.stringify(essayImages),
+        essayImages: JSON.stringify(essayImageRefs),
         essayGrades: JSON.stringify(essayGrades),
         score: finalScore,
         status: 'graded',
@@ -306,8 +325,17 @@ export default function TakeExam() {
         })
       });
       
-      // Update the student submission index
-      syncStudentSubmissionIndex(appUser.uid, db).catch(console.error);
+      // Update the student submission index optimally using setDoc merge with arrayUnion
+      const studentIndexRef = doc(db, 'student_indexes', appUser.uid);
+      setDoc(studentIndexRef, {
+        submissions: arrayUnion({
+          id: docRef.id,
+          examId: exam.id,
+          score: finalScore,
+          status: 'submitted',
+          submittedAt: submissionData.submittedAt
+        })
+      }, { merge: true }).catch(console.error);
 
       setSubmittedResult({ score: finalScore, incorrectQuestions });
     } catch (err: any) {

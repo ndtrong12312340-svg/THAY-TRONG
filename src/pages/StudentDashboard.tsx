@@ -7,6 +7,11 @@ import { LogOut, PlayCircle, CheckCircle, XCircle, RefreshCw, MessageCircle, X, 
 
 import { updateStudentContactIndex } from '../lib/firebase';
 
+let cachedExams: any[] | null = null;
+let cachedSubmissions: any[] | null = null;
+let lastStudentFetchTime: number = 0;
+const STUDENT_CACHE_DURATION = 5 * 60 * 1000;
+
 export default function StudentDashboard() {
   const { appUser, logout } = useAuth();
   const [exams, setExams] = useState<any[]>([]);
@@ -44,8 +49,15 @@ export default function StudentDashboard() {
     }
   };
 
-  const fetchData = async () => {
+  const fetchData = async (forceRefresh = false) => {
     if (!appUser?.uid || !appUser?.className) return;
+    
+    if (!forceRefresh && cachedExams && cachedSubmissions && Date.now() - lastStudentFetchTime < STUDENT_CACHE_DURATION) {
+      setExams(cachedExams);
+      setSubmissions(cachedSubmissions);
+      return;
+    }
+
     setIsRefreshing(true);
     setError(null);
     try {
@@ -101,6 +113,7 @@ export default function StudentDashboard() {
       });
       
       setExams(examsList);
+      cachedExams = examsList;
 
       // Lấy phụ lục các bài ĐÃ NỘP của học sinh này (chỉ tốn 1 lượt đọc)
       const studentIndexRef = doc(db, 'student_indexes', appUser.uid);
@@ -110,6 +123,8 @@ export default function StudentDashboard() {
         activeSubmissions = studentIndexSnap.data().submissions || [];
       }
       setSubmissions(activeSubmissions);
+      cachedSubmissions = activeSubmissions;
+      lastStudentFetchTime = Date.now();
     } catch (err: any) {
       console.error("Error fetching data:", err);
       if (err.message && err.message.includes('Quota')) {
@@ -150,7 +165,7 @@ export default function StudentDashboard() {
                   <MessageCircle className="w-5 h-5 mr-1" /> Cập nhật Liên hệ
                 </button>
               )}
-              <button onClick={fetchData} disabled={isRefreshing} className="text-blue-100 hover:text-white flex items-center transition-colors font-medium mr-2">
+              <button onClick={() => fetchData(true)} disabled={isRefreshing} className="text-blue-100 hover:text-white flex items-center transition-colors font-medium mr-2">
                 <RefreshCw className={`w-5 h-5 mr-1 ${isRefreshing ? 'animate-spin' : ''}`} /> Làm mới
               </button>
               <button onClick={logout} className="text-blue-100 hover:text-white flex items-center transition-colors font-medium">

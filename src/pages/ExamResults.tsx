@@ -537,7 +537,30 @@ export default function ExamResults() {
     try {
       const subDoc = await getDoc(doc(db, 'submissions', subId));
       if (subDoc.exists()) {
-        setViewingSubmissionDetails({ id: subDoc.id, ...subDoc.data() });
+        const data = subDoc.data();
+        let parsedEssayImages: Record<string, string[]> = {};
+        if (data.essayImages) {
+          try {
+            parsedEssayImages = typeof data.essayImages === 'string' ? JSON.parse(data.essayImages) : data.essayImages;
+            // Resolve any IDs to base64
+            for (const qId of Object.keys(parsedEssayImages)) {
+              for (let i = 0; i < parsedEssayImages[qId].length; i++) {
+                const val = parsedEssayImages[qId][i];
+                if (!val.startsWith('data:') && !val.startsWith('http')) {
+                  try {
+                    const imgDoc = await getDoc(doc(db, 'submission_images', val));
+                    if (imgDoc.exists()) {
+                      parsedEssayImages[qId][i] = imgDoc.data().base64Data;
+                    }
+                  } catch (e) {
+                    console.error("Failed to load image doc", val);
+                  }
+                }
+              }
+            }
+          } catch (e) {}
+        }
+        setViewingSubmissionDetails({ id: subDoc.id, ...data, essayImages: JSON.stringify(parsedEssayImages) });
       }
     } catch (error) {
       console.error("Error fetching submission details:", error);

@@ -891,7 +891,8 @@ export default function TeacherDashboard() {
                           await syncGlobalStudentIndexes(db);
                           
                           // Sync exams for all classes found in exams
-                          const examsSnap = await getDocs(collection(db, 'exams'));
+                          const qExamsSync = query(collection(db, 'exams'), where('teacherId', '==', appUser.uid));
+                          const examsSnap = await getDocs(qExamsSync);
                           const allClasses = new Set<string>();
                           examsSnap.forEach(d => {
                             const classes = d.data().assignedClasses || [];

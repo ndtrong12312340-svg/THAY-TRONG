@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, onAuthStateChanged, signOut, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
-import { doc, getDoc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, query, where, getDocs, limit } from 'firebase/firestore';
 import { auth, db, handleFirestoreError, OperationType } from './firebase';
 
 export type UserRole = 'teacher' | 'student';
@@ -49,7 +49,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setAppUser(userDoc.data() as AppUser);
           } else {
             // Check if a teacher already exists
-            const q = query(collection(db, 'users'), where('role', '==', 'teacher'));
+            const q = query(collection(db, 'users'), where('role', '==', 'teacher'), limit(1));
             const querySnapshot = await getDocs(q);
             
             if (querySnapshot.empty) {
@@ -91,7 +91,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const userDoc = await getDoc(userDocRef);
       
       if (!userDoc.exists()) {
-        const q = query(collection(db, 'users'), where('role', '==', 'teacher'));
+        const q = query(collection(db, 'users'), where('role', '==', 'teacher'), limit(1));
         const querySnapshot = await getDocs(q);
         
         if (!querySnapshot.empty) {

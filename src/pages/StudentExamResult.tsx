@@ -40,7 +40,7 @@ export default function StudentExamResult() {
       }
     };
     fetchData();
-  }, [examId, appUser]);
+  }, [examId, appUser?.uid]);
 
   if (loading) return <div className="flex h-screen items-center justify-center bg-gray-50 text-indigo-600 font-medium text-lg">Đang tải kết quả...</div>;
   if (!exam || !submission) return <div className="flex h-screen items-center justify-center bg-gray-50 text-red-500 font-medium text-lg">Không tìm thấy kết quả.</div>;
