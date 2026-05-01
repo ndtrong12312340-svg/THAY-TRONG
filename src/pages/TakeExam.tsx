@@ -349,57 +349,84 @@ export default function TakeExam() {
     const file = e.target.files?.[0];
     if (!file || !appUser) return;
 
+    // Giới hạn dung lượng file trước khi xử lý (ví dụ: tối đa 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      alert("Ảnh quá lớn (tối đa 10MB). Vui lòng chụp ảnh khác hoặc giảm độ phân giải.");
+      return;
+    }
+
     setUploadingEssayId(questionId);
     try {
       const reader = new FileReader();
-      reader.readAsDataURL(file);
+      
+      reader.onerror = () => {
+        alert("Lỗi khi đọc file.");
+        setUploadingEssayId(null);
+      };
+
       reader.onload = async (event) => {
         const img = new Image();
         img.src = event.target?.result as string;
-        img.onload = async () => {
-          const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 1000;
-          const MAX_HEIGHT = 1000;
-          let width = img.width;
-          let height = img.height;
-
-          if (width > height) {
-            if (width > MAX_WIDTH) {
-              height *= MAX_WIDTH / width;
-              width = MAX_WIDTH;
-            }
-          } else {
-            if (height > MAX_HEIGHT) {
-              width *= MAX_HEIGHT / height;
-              height = MAX_HEIGHT;
-            }
-          }
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.fillStyle = '#FFFFFF';
-            ctx.fillRect(0, 0, width, height);
-            ctx.drawImage(img, 0, 0, width, height);
-          }
-          const base64 = canvas.toDataURL('image/jpeg', 0.6);
-          
-          // Upload to Firebase Storage
-          const fileName = `${appUser.uid}_${questionId}_${Date.now()}.jpg`;
-          const storageRef = ref(storage, `essays/${examId}/${fileName}`);
-          await uploadString(storageRef, base64, 'data_url');
-          const downloadURL = await getDownloadURL(storageRef);
-
-          setEssayImages(prev => ({
-            ...prev,
-            [questionId]: [...(prev[questionId] || []), downloadURL]
-          }));
+        
+        img.onerror = () => {
+          alert("Tệp tin không phải là ảnh hợp lệ.");
           setUploadingEssayId(null);
         };
+
+        img.onload = async () => {
+          try {
+            const canvas = document.createElement('canvas');
+            const MAX_WIDTH = 1200; // Tăng nhẹ độ phân giải cho rõ hơn
+            const MAX_HEIGHT = 1200;
+            let width = img.width;
+            let height = img.height;
+
+            if (width > height) {
+              if (width > MAX_WIDTH) {
+                height *= MAX_WIDTH / width;
+                width = MAX_WIDTH;
+              }
+            } else {
+              if (height > MAX_HEIGHT) {
+                width *= MAX_HEIGHT / height;
+                height = MAX_HEIGHT;
+              }
+            }
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.fillStyle = '#FFFFFF';
+              ctx.fillRect(0, 0, width, height);
+              ctx.drawImage(img, 0, 0, width, height);
+            }
+            
+            // Nén ảnh chất lượng 0.5 để giảm dung lượng tải lên
+            const base64 = canvas.toDataURL('image/jpeg', 0.5);
+            
+            // Upload to Firebase Storage
+            const fileName = `${appUser.uid}_${questionId}_${Date.now()}.jpg`;
+            const storageRef = ref(storage, `essays/${examId}/${fileName}`);
+            
+            await uploadString(storageRef, base64, 'data_url');
+            const downloadURL = await getDownloadURL(storageRef);
+
+            setEssayImages(prev => ({
+              ...prev,
+              [questionId]: [...(prev[questionId] || []), downloadURL]
+            }));
+          } catch (err: any) {
+            console.error("Internal processing error:", err);
+            alert("Lỗi khi xử lý hoặc tải ảnh lên: " + (err.message || "Không xác định"));
+          } finally {
+            setUploadingEssayId(null);
+          }
+        };
       };
-    } catch (err) {
-      console.error("Essay image upload error:", err);
-      alert("Lỗi khi tải ảnh.");
+      reader.readAsDataURL(file);
+    } catch (err: any) {
+      console.error("Essay image upload outer error:", err);
+      alert("Lỗi không mong muốn: " + (err.message || "Không xác định"));
       setUploadingEssayId(null);
     }
   };

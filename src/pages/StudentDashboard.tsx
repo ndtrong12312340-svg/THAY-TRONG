@@ -59,6 +59,32 @@ export default function StudentDashboard() {
         // Lọc các đề đã published
         examsList = examsList.filter(e => e.status === 'published');
       }
+      
+      // Nếu không có dữ liệu trong phụ lục, thử tải trực tiếp (fallback)
+      if (examsList.length === 0) {
+        try {
+          const q = query(
+            collection(db, 'exams'),
+            where('status', '==', 'published'),
+            where('assignedClasses', 'array-contains', appUser.className)
+          );
+          const snap = await getDocs(q);
+          snap.forEach(d => {
+            const data = d.data();
+            examsList.push({
+              id: d.id,
+              title: data.title,
+              duration: data.duration,
+              startTime: data.startTime,
+              endTime: data.endTime,
+              status: data.status,
+              teacherId: data.teacherId
+            });
+          });
+        } catch (e) {
+          console.warn("Direct query fallback failed:", e);
+        }
+      }
 
       // Sắp xếp đề thi
       examsList.sort((a: any, b: any) => {

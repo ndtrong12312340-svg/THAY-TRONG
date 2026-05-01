@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../lib/AuthContext';
-import { db, handleFirestoreError, OperationType, syncClassExamIndexes, updateStudentManagementIndex, deleteStudentFromIndexes, syncGlobalStudentIndexes } from '../lib/firebase';
-import { collection, query, where, getDocs, addDoc, doc, setDoc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { db, handleFirestoreError, OperationType, syncClassExamIndexes, updateStudentManagementIndex, updateStudentContactIndex, deleteStudentFromIndexes, syncGlobalStudentIndexes } from '../lib/firebase';
+import { collection, query, where, getDocs, addDoc, doc, setDoc, deleteDoc, updateDoc, getDoc } from 'firebase/firestore';
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, updateEmail, updatePassword, deleteUser } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
@@ -155,18 +155,18 @@ export default function TeacherDashboard() {
       await setDoc(doc(db, 'users', userCredential.user.uid), {
         uid: userCredential.user.uid,
         email: newStudent.email,
-        name: newStudent.name,
-        className: newStudent.className,
-        password: newStudent.password,
+        name: newStudent.name.trim(),
+        className: newStudent.className.trim(),
+        password: newStudent.password.trim(),
         role: 'student',
         createdAt: new Date().toISOString()
       });
       const indexData = {
         id: userCredential.user.uid,
-        email: newStudent.email,
-        name: newStudent.name,
-        className: newStudent.className,
-        password: newStudent.password,
+        email: newStudent.email.trim(),
+        name: newStudent.name.trim(),
+        className: newStudent.className.trim(),
+        password: newStudent.password.trim(),
         phone: '',
         facebook: ''
       };
@@ -886,14 +886,33 @@ export default function TeacherDashboard() {
                     <button 
                       onClick={async () => {
                         setIsRefreshing(true);
-                        await syncGlobalStudentIndexes(db);
-                        await fetchData(true);
-                        setIsRefreshing(false);
-                        alert('Đã đồng bộ phụ lục học sinh thành công!');
+                        try {
+                          // Sync students
+                          await syncGlobalStudentIndexes(db);
+                          
+                          // Sync exams for all classes found in exams
+                          const examsSnap = await getDocs(collection(db, 'exams'));
+                          const allClasses = new Set<string>();
+                          examsSnap.forEach(d => {
+                            const classes = d.data().assignedClasses || [];
+                            classes.forEach((c: string) => allClasses.add(c));
+                          });
+                          if (allClasses.size > 0) {
+                            await syncClassExamIndexes(Array.from(allClasses), db);
+                          }
+
+                          await fetchData(true);
+                          alert('Đã đồng bộ toàn bộ dữ liệu (Học sinh & Đề thi) thành công!');
+                        } catch (err) {
+                          console.error(err);
+                          alert('Lỗi khi đồng bộ: ' + (err instanceof Error ? err.message : String(err)));
+                        } finally {
+                          setIsRefreshing(false);
+                        }
                       }}
                       disabled={isRefreshing}
                       className="text-sm bg-blue-50 text-blue-600 hover:bg-blue-100 px-4 py-2 rounded-lg flex items-center font-bold transition-colors disabled:opacity-50"
-                      title="Sử dụng khi danh sách học sinh bị thiếu thông tin hoặc sai lệch"
+                      title="Sử dụng khi danh sách học sinh hoặc đề thi bị thiếu thông tin hoặc sai lệch"
                     >
                       <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} /> Đồng bộ phụ lục
                     </button>
