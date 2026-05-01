@@ -60,15 +60,35 @@ service cloud.firestore {
              data.studentId is string && data.studentId.size() > 0 && data.studentId.size() < 100 &&
              data.answers is string && data.answers.size() < 20000 &&
              (!('essayImages' in data) || (data.essayImages is string && data.essayImages.size() < 10 * 1024 * 1024)) &&
+             (!('essayGrades' in data) || (data.essayGrades is string && data.essayGrades.size() < 20000)) &&
              data.score is number && data.score >= 0 && data.score <= 100 &&
              (!('status' in data) || data.status in ['submitted', 'graded']) &&
              data.incorrectQuestions is list && data.incorrectQuestions.size() <= 120 &&
              data.submittedAt is string;
     }
 
+    function isValidClassIndex(data) {
+      return data.exams is list && data.exams.size() < 1000;
+    }
+
+    function isValidStudentIndex(data) {
+      return data.submissions is list && data.submissions.size() < 1000;
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
+    
+    match /student_indexes/{studentId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isValidStudentIndex(request.resource.data);
+    }
+
+    match /class_indexes/{className} {
+      allow read: if isAuthenticated();
+      allow write: if isTeacher() && isValidClassIndex(request.resource.data);
+    }
+
     match /users/{userId} {
       // Anyone authenticated can read user profiles (needed for teachers to see students, students to see teachers)
       allow read: if isAuthenticated();

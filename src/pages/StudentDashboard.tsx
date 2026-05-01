@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../lib/AuthContext';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
-import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, updateDoc, orderBy, limit, deleteDoc, getDoc } from 'firebase/firestore';
 import { Link } from 'react-router-dom';
-import { LogOut, PlayCircle, CheckCircle, XCircle, RefreshCw, MessageCircle, X, AlertCircle } from 'lucide-react';
+import { LogOut, PlayCircle, CheckCircle, XCircle, RefreshCw, MessageCircle, X, AlertCircle, Bell, Trash2 } from 'lucide-react';
+
+import { updateStudentContactIndex } from '../lib/firebase';
 
 export default function StudentDashboard() {
   const { appUser, logout } = useAuth();
@@ -25,8 +27,16 @@ export default function StudentDashboard() {
         facebook: fbLink,
         phone: phone
       });
+      
+      // Update global contacts index
+      await updateStudentContactIndex(db, {
+        ...appUser,
+        facebook: fbLink,
+        phone: phone
+      });
+
       setShowFbModal(false);
-      alert('Cập nhật thông tin thành công! Bạn có thể đăng xuất và đăng nhập lại để hệ thống nhận diện hoàn toàn.');
+      alert('Cập nhật thông tin thành công!');
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `users/${appUser.uid}`);
     } finally {
@@ -39,60 +49,47 @@ export default function StudentDashboard() {
     setIsRefreshing(true);
     setError(null);
     try {
-      // Fetch published exams assigned to student's class
-      const qExams = query(
-        collection(db, 'exams'),
-        where('status', '==', 'published'),
-        where('assignedClasses', 'array-contains', appUser.className)
-      );
+      // Lấy phụ lục đề thi của lớp (chỉ tốn 1 lượt đọc)
+      const classIndexRef = doc(db, 'class_indexes', appUser.className);
+      const classIndexSnap = await getDoc(classIndexRef);
+      let examsList: any[] = [];
       
-      const examSnap = await getDocs(qExams);
-      const examsList = examSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      
-      // Sort exams by number in title
+      if (classIndexSnap.exists()) {
+        examsList = classIndexSnap.data().exams || [];
+        // Lọc các đề đã published
+        examsList = examsList.filter(e => e.status === 'published');
+      }
+
+      // Sắp xếp đề thi
       examsList.sort((a: any, b: any) => {
         const titleA = a.title || '';
         const titleB = b.title || '';
-        
         const matchA = titleA.match(/\d+/);
         const matchB = titleB.match(/\d+/);
-        
         if (matchA && matchB) {
           const numA = parseInt(matchA[0], 10);
           const numB = parseInt(matchB[0], 10);
-          if (numA !== numB) {
-            return numA - numB;
-          }
+          if (numA !== numB) return numA - numB;
         }
-        
         return titleA.localeCompare(titleB);
       });
       
       setExams(examsList);
 
-      // SMART FETCH: We no longer need to fetch submissions at all!
-      // The exam document now contains a submissionSummary array.
-      // We can just check if the student's ID is in that array.
-      const activeSubmissions: any[] = [];
-      examsList.forEach((exam: any) => {
-        if (exam.submissionSummary) {
-          const studentSub = exam.submissionSummary.find((s: any) => s.studentId === appUser.uid);
-          if (studentSub) {
-            activeSubmissions.push({
-              examId: exam.id,
-              ...studentSub
-            });
-          }
-        }
-      });
-      
+      // Lấy phụ lục các bài ĐÃ NỘP của học sinh này (chỉ tốn 1 lượt đọc)
+      const studentIndexRef = doc(db, 'student_indexes', appUser.uid);
+      const studentIndexSnap = await getDoc(studentIndexRef);
+      let activeSubmissions: any[] = [];
+      if (studentIndexSnap.exists()) {
+        activeSubmissions = studentIndexSnap.data().submissions || [];
+      }
       setSubmissions(activeSubmissions);
     } catch (err: any) {
       console.error("Error fetching data:", err);
       if (err.message && err.message.includes('Quota')) {
-        setError('Hệ thống đang quá tải (vượt quá giới hạn truy cập miễn phí của Firebase). Vui lòng thử lại sau.');
+        setError('Hệ thống đang quá tải (Firebase Quota).');
       } else {
-        setError('Đã xảy ra lỗi khi tải danh sách bài tập. Vui lòng thử lại.');
+        setError('Đã xảy ra lỗi khi tải danh sách. Thử lại sau.');
       }
     } finally {
       setIsRefreshing(false);

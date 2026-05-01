@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../lib/AuthContext';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
-import { collection, query, where, getDocs, doc, getDoc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { db, handleFirestoreError, OperationType, syncStudentSubmissionIndex } from '../lib/firebase';
+import { collection, query, where, getDocs, doc, getDoc, deleteDoc, updateDoc, addDoc } from 'firebase/firestore';
 import { ArrowLeft, Users, CheckCircle, XCircle, Trash2, AlertCircle, BarChart3, Loader2, RefreshCw, Eye, BookOpen, Brain, FileText, MessageCircle } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList } from 'recharts';
 import MathText from '../components/MathText';
@@ -14,7 +14,7 @@ export default function ExamResults() {
   const { appUser } = useAuth();
   const [exam, setExam] = useState<any>(null);
   const [submissions, setSubmissions] = useState<any[]>([]);
-  const [students, setStudents] = useState<any[]>([]);
+  const [contactsMap, setContactsMap] = useState<any>({});
   const [submissionToDelete, setSubmissionToDelete] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [regradingId, setRegradingId] = useState<string | null>(null);
@@ -56,6 +56,11 @@ export default function ExamResults() {
         examData = { id: docSnap.id, ...docSnap.data() };
         setExam(examData);
       }
+      
+      const mapSnap = await getDoc(doc(db, 'admin_indexes', 'contacts_map'));
+      if (mapSnap.exists()) {
+        setContactsMap(mapSnap.data() || {});
+      }
 
       // Use submissionSummary from exam document instead of fetching all submissions
       // This saves N reads where N is the number of submissions
@@ -63,6 +68,8 @@ export default function ExamResults() {
         const subs = examData.submissionSummary.map((s: any) => ({
           id: s.submissionId,
           studentId: s.studentId,
+          studentName: s.studentName,
+          studentClass: s.studentClass,
           score: s.score,
           incorrectQuestions: s.incorrectQuestions || [],
           submittedAt: s.submittedAt
@@ -71,11 +78,6 @@ export default function ExamResults() {
       } else {
         setSubmissions([]);
       }
-
-      const qStudents = query(collection(db, 'users'), where('role', '==', 'student'));
-      const studentSnap = await getDocs(qStudents);
-      const studs = studentSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setStudents(studs);
     } catch (error) {
       handleFirestoreError(error, OperationType.LIST, 'exam_results_data');
     } finally {
@@ -88,11 +90,6 @@ export default function ExamResults() {
   }, [examId]);
 
   if (!exam) return <div className="flex h-screen items-center justify-center">Đang tải...</div>;
-
-  const getStudentName = (studentId: string) => {
-    const student = students.find(s => s.uid === studentId);
-    return student ? `${student.name} (${student.className})` : 'Học sinh không xác định';
-  };
 
   const handleDeleteSubmission = async () => {
     if (!submissionToDelete || !exam) return;
@@ -186,6 +183,8 @@ export default function ExamResults() {
         submissionSummary: updatedSummary
       });
       
+      syncStudentSubmissionIndex(submission.studentId, db).catch(console.error);
+
       // Update local state
       setExam({ ...exam, submissionSummary: updatedSummary });
       setSubmissions(submissions.map(s => s.id === submission.id ? { ...s, score } : s));
@@ -195,6 +194,162 @@ export default function ExamResults() {
       handleFirestoreError(error, OperationType.UPDATE, `submissions/${submission.id}`);
     } finally {
       setRegradingId(null);
+    }
+  };
+
+  const handleAIGradeAllEssays = async (submission: any) => {
+    if (!exam || !submission) return;
+    setIsGradingEssay('all');
+    try {
+      const essayQuestions = exam.questions.filter((q: any) => q.type === 'essay');
+      const essayImagesMap = typeof submission.essayImages === 'string' ? JSON.parse(submission.essayImages || '{}') : submission.essayImages;
+      
+      const batchEssayData = essayQuestions.map((q: any) => ({
+        questionId: q.id,
+        content: q.content,
+        correctAnswer: q.correctAnswer || "",
+        explanation: q.explanation || "Không có barem cụ thể.",
+        images: essayImagesMap[q.id] || []
+      })).filter((item: any) => item.images.length > 0);
+
+      if (batchEssayData.length === 0) {
+        alert('Không có ảnh bài làm tự luận nào để chấm.');
+        setIsGradingEssay(null);
+        return;
+      }
+
+      const ai = getAI();
+      const prompt = `
+        Bạn là một giám khảo chấm thi vô cùng nghiêm ngặt và chính xác. 
+        Nhiệm vụ của bạn là chấm điểm TOÀN BỘ các câu hỏi tự luận của học sinh dựa trên ảnh chụp bài làm, ĐÁP ÁN và BAREM ĐIỂM.
+        
+        DANH SÁCH CÁC CÂU HỎI CẦN CHẤM:
+        ${batchEssayData.map((d: any, i: number) => `
+        --- CÂU ${i + 1} (ID: ${d.questionId}) ---
+        NỘI DUNG: ${d.content}
+        ĐÁP ÁN CHUẨN: ${d.correctAnswer}
+        BAREM/LỜI GIẢI: ${d.explanation}
+        `).join('\n')}
+        
+        QUY TẮC CHẤM ĐIỂM:
+        1. Đối chiếu kỹ từng bài làm với barem tương ứng.
+        2. Điểm số (score) tuyệt đối không vượt quá điểm tối đa (maxScore) trong barem.
+        3. Đưa ra nhận xét (feedback) ngắn gọn, súc tích về lỗi sai hoặc ưu điểm.
+        
+        TRẢ VỀ KẾT QUẢ DƯỚI DẠNG JSON CHUẨN MẢNG CÁC ĐỐI TƯỢNG (ARRAY OF OBJECTS):
+        [
+          { 
+            "questionId": "id_câu_hỏi",
+            "maxScore": number, 
+            "score": number, 
+            "feedback": string 
+          },
+          ...
+        ]
+      `;
+
+      const allImagesParts = [];
+      for (const d of batchEssayData) {
+        for (const img of d.images) {
+          let base64Data = '';
+          if (img.startsWith('http')) {
+            const response = await fetch(img);
+            const blob = await response.blob();
+            base64Data = await new Promise<string>((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+              reader.readAsDataURL(blob);
+            });
+          } else {
+            base64Data = img.split(',')[1];
+          }
+          allImagesParts.push({
+            inlineData: { mimeType: 'image/jpeg', data: base64Data }
+          });
+        }
+      }
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-1.5-flash',
+        contents: [{ role: 'user', parts: [...allImagesParts, { text: prompt }] }],
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                questionId: { type: Type.STRING },
+                maxScore: { type: Type.NUMBER },
+                score: { type: Type.NUMBER },
+                feedback: { type: Type.STRING }
+              },
+              required: ["questionId", "maxScore", "score", "feedback"]
+            }
+          }
+        }
+      });
+
+      const results = JSON.parse(response.text || '[]');
+      const oldEssayGrades = typeof submission.essayGrades === 'string' ? JSON.parse(submission.essayGrades || '{}') : (submission.essayGrades || {});
+      const newEssayGrades = { ...oldEssayGrades };
+      
+      results.forEach((res: any) => {
+        newEssayGrades[res.questionId] = {
+          score: res.score,
+          maxScore: res.maxScore,
+          feedback: res.feedback
+        };
+      });
+
+      // Re-calculate total score
+      const currentAnswers = typeof submission.answers === 'string' ? JSON.parse(submission.answers || '{}') : submission.answers;
+      let totalMcScore = 0;
+      exam.questions.forEach((eq: any) => {
+        if (eq.type !== 'essay') {
+          const ans = currentAnswers[eq.id];
+          if (eq.type === 'multiple_choice' && ans === eq.correctAnswer) totalMcScore += 0.25;
+          else if (eq.type === 'short_answer') {
+            const sAns = String(ans || '').trim().toLowerCase().replace(/\s+/g, '');
+            const cAns = String(eq.correctAnswer || '').trim().toLowerCase().replace(/\s+/g, '');
+            if (sAns === cAns && sAns !== '') totalMcScore += 0.5;
+          } else if (eq.type === 'true_false') {
+            try {
+              const cArr = JSON.parse(eq.correctAnswer || '[]');
+              const sArr = ans || [];
+              for (let i = 0; i < 4; i++) { if (sArr[i] === cArr[i]) totalMcScore += 0.25; }
+            } catch(e) {}
+          }
+        }
+      });
+
+      const totalEssayScore = (Object.values(newEssayGrades) as any[]).reduce((acc: number, curr: any) => acc + Number(curr.score || 0), 0);
+      const newTotalScore = totalMcScore + totalEssayScore;
+
+      await updateDoc(doc(db, 'submissions', submission.id), {
+        essayGrades: JSON.stringify(newEssayGrades),
+        score: newTotalScore,
+        status: 'graded'
+      });
+
+      const updatedSummary = exam.submissionSummary.map((s: any) => {
+        if (s.submissionId === submission.id) return { ...s, score: newTotalScore };
+        return s;
+      });
+      await updateDoc(doc(db, 'exams', exam.id), { submissionSummary: updatedSummary });
+
+      syncStudentSubmissionIndex(submission.studentId, db).catch(console.error);
+
+      setViewingSubmissionDetails({ ...submission, essayGrades: JSON.stringify(newEssayGrades), score: newTotalScore });
+      setExam({ ...exam, submissionSummary: updatedSummary });
+      setSubmissions(submissions.map(s => s.id === submission.id ? { ...s, score: newTotalScore } : s));
+
+      alert('Đã hoàn tất chấm điểm toàn bộ bài tự luận!');
+    } catch (error: any) {
+      console.error("Batch AI Grading Error:", error);
+      alert('Lỗi khi chấm điểm AI: ' + error.message);
+    } finally {
+      setIsGradingEssay(null);
     }
   };
 
@@ -248,6 +403,25 @@ export default function ExamResults() {
       let attempts = 0;
       let graded = false;
 
+      const allImagesParts = [];
+      for (const img of images) {
+        let base64Data = '';
+        if (img.startsWith('http')) {
+          const response = await fetch(img);
+          const blob = await response.blob();
+          base64Data = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+            reader.readAsDataURL(blob);
+          });
+        } else {
+          base64Data = img.split(',')[1];
+        }
+        allImagesParts.push({
+          inlineData: { mimeType: 'image/jpeg', data: base64Data }
+        });
+      }
+
       while (attempts < 3 && !graded) {
         try {
           const response = await ai.models.generateContent({
@@ -256,12 +430,7 @@ export default function ExamResults() {
               {
                 role: 'user',
                 parts: [
-                  ...images.map((img: string) => ({
-                    inlineData: {
-                      mimeType: 'image/jpeg',
-                      data: img.split(',')[1]
-                    }
-                  })),
+                  ...allImagesParts,
                   { text: prompt }
                 ]
               }
@@ -346,6 +515,8 @@ export default function ExamResults() {
       await updateDoc(doc(db, 'exams', exam.id), {
         submissionSummary: updatedSummary
       });
+
+      syncStudentSubmissionIndex(submission.studentId, db).catch(console.error);
 
       // Update local state
       setViewingSubmissionDetails({ ...submission, essayGrades: JSON.stringify(newEssayGrades), score: newTotalScore });
@@ -483,7 +654,9 @@ export default function ExamResults() {
                 Chưa có học sinh nào nộp bài.
               </li>
             ) : uniqueSubmissions.map((sub) => {
-              const student = students.find(s => s.uid === sub.studentId);
+              const studentName = typeof sub === 'object' && sub !== null && 'studentName' in sub ? String(sub.studentName) : 'Học sinh không xác định';
+              const studentClass = typeof sub === 'object' && sub !== null && 'studentClass' in sub ? String(sub.studentClass) : '';
+              const displayName = studentClass ? `${studentName} (${studentClass})` : studentName;
               return (
               <li key={sub.id} className="px-6 py-6 hover:bg-gray-50/50 transition-colors">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
@@ -492,7 +665,7 @@ export default function ExamResults() {
                       <Users className="h-6 w-6 text-indigo-600" />
                     </div>
                     <div className="ml-5">
-                      <h3 className="text-lg font-bold text-gray-900">{student ? `${student.name} (${student.className})` : 'Học sinh không xác định'}</h3>
+                      <h3 className="text-lg font-bold text-gray-900">{displayName}</h3>
                       <p className="text-sm font-medium text-gray-500 mt-0.5">
                         Nộp lúc: {new Date(sub.submittedAt).toLocaleString('vi-VN')}
                       </p>
@@ -504,13 +677,13 @@ export default function ExamResults() {
                         <p className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-purple-600">{sub.score.toFixed(2)} <span className="text-base text-indigo-300 font-bold">/ 10</span></p>
                       </div>
                       
-                      {student && student.phone && (
+                      {contactsMap[sub.studentId] && contactsMap[sub.studentId].phone && (
                         <button
                           onClick={() => {
-                            const text = `🎉 KẾT QUẢ BÀI THI 🎉\n\nChào ${student.name}, em đã hoàn thành bài thi: "${exam.title}"\n\n🎯 Điểm số: ${sub.score.toFixed(2)} / 10 điểm.\n👉 Hãy tiếp tục cố gắng nhé!\n🔗 Xem lại bài làm: https://thay-trong.vercel.app`;
+                            const text = `🎉 KẾT QUẢ BÀI THI 🎉\n\nChào ${displayName}, em đã hoàn thành bài thi: "${exam.title}"\n\n🎯 Điểm số: ${sub.score.toFixed(2)} / 10 điểm.\n👉 Hãy tiếp tục cố gắng nhé!\n🔗 Xem lại bài làm: https://thay-trong.vercel.app`;
                             navigator.clipboard.writeText(text);
                             alert('Đã copy thông báo điểm vào khay nhớ tạm. Dán (Ctrl+V) vào Zalo của học sinh để gửi!');
-                            window.open(`https://chat.zalo.me/?phone=${student.phone.replace(/[^0-9]/g, '')}`, '_blank');
+                            window.open(`https://chat.zalo.me/?phone=${contactsMap[sub.studentId].phone.replace(/[^0-9]/g, '')}`, '_blank');
                           }}
                           className="text-blue-500 hover:text-blue-700 p-2.5 rounded-xl hover:bg-blue-50 transition-colors border border-transparent hover:border-blue-100 mr-2"
                           title="Gửi kết quả điểm qua Zalo"
@@ -519,13 +692,13 @@ export default function ExamResults() {
                         </button>
                       )}
                       
-                      {student && student.facebook && (
+                      {contactsMap[sub.studentId] && contactsMap[sub.studentId].facebook && (
                         <button
                           onClick={() => {
-                            const text = `🎉 KẾT QUẢ BÀI THI 🎉\n\nChào ${student.name}, em đã hoàn thành bài thi: "${exam.title}"\n\n🎯 Điểm số: ${sub.score.toFixed(2)} / 10 điểm.\n👉 Hãy tiếp tục cố gắng nhé!\n🔗 Xem lại bài làm: https://thay-trong.vercel.app`;
+                            const text = `🎉 KẾT QUẢ BÀI THI 🎉\n\nChào ${displayName}, em đã hoàn thành bài thi: "${exam.title}"\n\n🎯 Điểm số: ${sub.score.toFixed(2)} / 10 điểm.\n👉 Hãy tiếp tục cố gắng nhé!\n🔗 Xem lại bài làm: https://thay-trong.vercel.app`;
                             navigator.clipboard.writeText(text);
                             alert('Đã copy thông báo điểm vào khay nhớ tạm. Dán (Ctrl+V) vào Facebook của học sinh để gửi!');
-                            window.open(student.facebook, '_blank');
+                            window.open(contactsMap[sub.studentId].facebook, '_blank');
                           }}
                           className="text-indigo-500 hover:text-indigo-700 p-2.5 rounded-xl hover:bg-indigo-50 transition-colors border border-transparent hover:border-indigo-100 mr-2"
                           title="Gửi kết quả điểm qua Facebook"
@@ -641,12 +814,22 @@ export default function ExamResults() {
                 
                 return (
                   <div className="space-y-6">
-                    <div className="bg-amber-100 p-4 rounded-xl text-amber-800 font-bold flex items-center mb-4">
-                      {sub.status === 'graded' ? (
-                        <><CheckCircle className="w-5 h-5 mr-2 text-emerald-600" /> Trạng thái: Đã chấm điểm</>
-                      ) : (
-                        <><AlertCircle className="w-5 h-5 mr-2 text-amber-600" /> Trạng thái: Chờ chấm bài (Tự luận)</>
-                      )}
+                    <div className="bg-amber-100 p-4 rounded-xl text-amber-800 font-bold flex flex-col sm:flex-row items-center justify-between gap-4 mb-4">
+                      <div className="flex items-center">
+                        {sub.status === 'graded' ? (
+                          <><CheckCircle className="w-5 h-5 mr-2 text-emerald-600" /> Trạng thái: Đã chấm điểm</>
+                        ) : (
+                          <><AlertCircle className="w-5 h-5 mr-2 text-amber-600" /> Trạng thái: Chờ chấm bài (Tự luận)</>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => handleAIGradeAllEssays(sub)}
+                        disabled={isGradingEssay === 'all'}
+                        className="w-full sm:w-auto flex items-center justify-center px-6 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl text-sm font-black hover:from-purple-700 hover:to-indigo-700 transition-all shadow-md disabled:opacity-50"
+                      >
+                        {isGradingEssay === 'all' ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Brain className="w-4 h-4 mr-2" />}
+                        Chấm toàn bộ tự luận bằng AI (Tiết kiệm Qouta)
+                      </button>
                     </div>
 
                     {questionsToShow.map((qId: string) => {

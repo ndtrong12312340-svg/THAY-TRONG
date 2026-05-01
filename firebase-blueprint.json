@@ -72,6 +72,10 @@
           "type": "string",
           "description": "JSON stringified map of questionId to array of image URLs (base64/storage)"
         },
+        "essayGrades": {
+          "type": "string",
+          "description": "JSON stringified map of questionId to essay grade results"
+        },
         "score": { "type": "number" },
         "status": { "type": "string", "enum": ["submitted", "graded"] },
         "incorrectQuestions": {
@@ -81,6 +85,21 @@
         "submittedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["examId", "studentId", "answers", "score", "submittedAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "A notification sent to a user.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "type": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "link": { "type": "string" },
+        "isRead": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "title", "content", "isRead", "createdAt"]
     }
   },
   "firestore": {
@@ -95,6 +114,10 @@
     "/submissions/{submissionId}": {
       "schema": { "$ref": "#/entities/Submission" },
       "description": "Stores student submissions."
+    },
+    "/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/Notification" },
+      "description": "Stores user notifications."
     }
   }
 }

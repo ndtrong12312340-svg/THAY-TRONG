@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../lib/AuthContext';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { db, handleFirestoreError, OperationType, syncClassExamIndexes } from '../lib/firebase';
 import { collection, addDoc, doc, getDoc, updateDoc, getDocs, query, where } from 'firebase/firestore';
 import { useNavigate, useParams } from 'react-router-dom';
 import { GoogleGenAI, Type } from '@google/genai';
@@ -33,6 +33,7 @@ export default function ExamBuilder() {
   const [editingQuestionIndex, setEditingQuestionIndex] = useState<number | null>(null);
   const [editingContent, setEditingContent] = useState<string>('');
   const [editingOptions, setEditingOptions] = useState<string[]>([]);
+  const [originalClasses, setOriginalClasses] = useState<string[]>([]);
 
   const addQuestion = (type: string) => {
     const newQuestion = {
@@ -69,7 +70,9 @@ export default function ExamBuilder() {
             }
             setTitle(data.title || '');
             setDuration(data.duration || 50);
-            setAssignedClasses(data.assignedClasses?.join(', ') || '');
+            const loadedClasses = data.assignedClasses || [];
+            setAssignedClasses(loadedClasses.join(', ') || '');
+            setOriginalClasses(loadedClasses);
             setStartTime(data.startTime || '');
             setEndTime(data.endTime || '');
             setQuestions(data.questions || []);
@@ -548,6 +551,11 @@ export default function ExamBuilder() {
         };
         await addDoc(collection(db, 'exams'), examData);
       }
+      
+      // Fire-and-forget sync indices
+      const classesToSync = [...new Set([...originalClasses, ...classesArray])];
+      syncClassExamIndexes(classesToSync, db).catch(err => console.error(err));
+      
       navigate('/teacher');
     } catch (error) {
       handleFirestoreError(error, examId ? OperationType.UPDATE : OperationType.CREATE, examId ? `exams/${examId}` : 'exams');
