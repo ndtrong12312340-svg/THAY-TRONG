@@ -189,20 +189,21 @@ export default function TakeExam() {
               const allImagesParts = [];
               for (const d of batchEssayData) {
                 for (const url of d.images) {
-                  // If URL is not base64, we need to fetch it to pass to AI if needed, 
-                  // but Gemini can also take URLs if configured. However, most stable is base64 for inlineData.
-                  // Since we just uploaded to Storage, we might need a small helper to fetch back as base64 or use the one we had.
-                  // For now, I will assume AI can use the URL if we pass it, but standard SDK prefers inlineData.
-                  // Let's fetch the image back as base64 just for the AI prompt part.
-                  const response = await fetch(url);
-                  const blob = await response.blob();
-                  const base64 = await new Promise<string>((resolve) => {
-                    const reader = new FileReader();
-                    reader.onloadend = () => resolve(reader.result as string);
-                    reader.readAsDataURL(blob);
-                  });
+                  let base64Data = '';
+                  if (url.startsWith('data:')) {
+                    base64Data = url.split(',')[1];
+                  } else {
+                    const response = await fetch(url);
+                    const blob = await response.blob();
+                    const base64Str = await new Promise<string>((resolve) => {
+                      const reader = new FileReader();
+                      reader.onloadend = () => resolve(reader.result as string);
+                      reader.readAsDataURL(blob);
+                    });
+                    base64Data = base64Str.split(',')[1];
+                  }
                   allImagesParts.push({
-                    inlineData: { mimeType: 'image/jpeg', data: base64.split(',')[1] }
+                    inlineData: { mimeType: 'image/jpeg', data: base64Data }
                   });
                 }
               }
@@ -376,8 +377,8 @@ export default function TakeExam() {
         img.onload = async () => {
           try {
             const canvas = document.createElement('canvas');
-            const MAX_WIDTH = 1200; // Tăng nhẹ độ phân giải cho rõ hơn
-            const MAX_HEIGHT = 1200;
+            const MAX_WIDTH = 800; // Nén nhỏ để tránh vượt limit 1MB của Firestore
+            const MAX_HEIGHT = 800;
             let width = img.width;
             let height = img.height;
 
@@ -401,19 +402,13 @@ export default function TakeExam() {
               ctx.drawImage(img, 0, 0, width, height);
             }
             
-            // Nén ảnh chất lượng 0.5 để giảm dung lượng tải lên
-            const base64 = canvas.toDataURL('image/jpeg', 0.5);
+            // Dùng trực tiếp base64 thay vì upload ảnh lên Storage để tránh lỗi phân quyền (Storage Rules)
+            // Nén ảnh chất lượng 0.4 và Max kích thước 800px để tránh lỗi vượt quá 1MB của Firestore
+            const base64 = canvas.toDataURL('image/jpeg', 0.4);
             
-            // Upload to Firebase Storage
-            const fileName = `${appUser.uid}_${questionId}_${Date.now()}.jpg`;
-            const storageRef = ref(storage, `essays/${examId}/${fileName}`);
-            
-            await uploadString(storageRef, base64, 'data_url');
-            const downloadURL = await getDownloadURL(storageRef);
-
             setEssayImages(prev => ({
               ...prev,
-              [questionId]: [...(prev[questionId] || []), downloadURL]
+              [questionId]: [...(prev[questionId] || []), base64]
             }));
           } catch (err: any) {
             console.error("Internal processing error:", err);
