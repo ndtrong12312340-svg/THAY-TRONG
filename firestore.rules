@@ -58,10 +58,10 @@ service cloud.firestore {
     function isValidSubmission(data) {
       return data.examId is string && data.examId.size() > 0 && data.examId.size() < 100 &&
              data.studentId is string && data.studentId.size() > 0 && data.studentId.size() < 100 &&
-             data.answers is string && data.answers.size() < 20000 &&
+             data.answers is string && data.answers.size() < 100000 &&
              (!('essayImages' in data) || (data.essayImages is string && data.essayImages.size() < 10 * 1024 * 1024)) &&
-             (!('essayGrades' in data) || (data.essayGrades is string && data.essayGrades.size() < 20000)) &&
-             data.score is number && data.score >= 0 && data.score <= 100 &&
+             (!('essayGrades' in data) || (data.essayGrades is string && data.essayGrades.size() < 100000)) &&
+             data.score is number && data.score >= 0 &&
              (!('status' in data) || data.status in ['submitted', 'graded']) &&
              data.incorrectQuestions is list && data.incorrectQuestions.size() <= 120 &&
              data.submittedAt is string;
@@ -75,13 +75,32 @@ service cloud.firestore {
       return data.submissions is list && data.submissions.size() < 1000;
     }
 
+    function isValidSubmissionImage(data) {
+      return data.examId is string && data.examId.size() > 0 && data.examId.size() < 100 &&
+             data.studentId is string && data.studentId.size() > 0 && data.studentId.size() < 100 &&
+             data.questionId is string && data.questionId.size() > 0 && data.questionId.size() < 100 &&
+             data.base64Data is string && data.base64Data.size() < 1048576 &&
+             data.createdAt is string;
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
     
+    match /admin_indexes/{indexId} {
+      allow read: if isAuthenticated();
+      allow write: if isTeacher();
+    }
+
+    match /submission_images/{imageId} {
+      allow read: if isAuthenticated() && (isTeacher() || isOwner(resource.data.studentId));
+      allow create: if isStudent() && isValidSubmissionImage(request.resource.data) && request.resource.data.studentId == request.auth.uid;
+      allow delete: if isTeacher();
+    }
+
     match /student_indexes/{studentId} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && isValidStudentIndex(request.resource.data);
+      allow write: if isAuthenticated() && isValidStudentIndex(request.resource.data) && (request.auth.uid == studentId || isTeacher());
     }
 
     match /class_indexes/{className} {

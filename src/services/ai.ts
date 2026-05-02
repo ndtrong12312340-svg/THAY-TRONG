@@ -8,7 +8,7 @@ export function getAI() {
   if (apiKeys.length === 0) {
     const keyString = process.env.GEMINI_API_KEY || (import.meta as any).env?.VITE_GEMINI_API_KEY || "";
     if (!keyString) {
-      throw new Error("Chưa cấu hình Gemini API Key. Vui lòng thêm trong Vercel/Environment Variables.");
+      throw new Error("Chưa cấu hình Gemini API Key. Vui lòng thêm trong Settings > Environment Variables.");
     }
     // Lọc và làm sạch API key để hỗ trợ danh sách dấu phẩy
     apiKeys = keyString.split(',').map(k => k.replace(/["']/g, '').trim()).filter(k => k.length > 0);
