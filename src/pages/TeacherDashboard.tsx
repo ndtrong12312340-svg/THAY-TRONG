@@ -13,11 +13,6 @@ import * as XLSX from 'xlsx';
 const secondaryApp = getApps().find(app => app.name === 'Secondary') || initializeApp(firebaseConfig, 'Secondary');
 const secondaryAuth = getAuth(secondaryApp);
 
-let cachedExams: any[] | null = null;
-let cachedStudents: any[] | null = null;
-let lastTeacherFetchTime = 0;
-const TEACHER_CACHE_DURATION = 1000 * 60 * 30; // 30 minutes
-
 export default function TeacherDashboard() {
   const { appUser, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<'exams' | 'students' | 'facebook'>('exams');
@@ -51,10 +46,7 @@ export default function TeacherDashboard() {
 
   const fetchExamsData = async (forceRefresh = false) => {
     if (!appUser?.uid) return;
-    if (!forceRefresh && cachedExams && Date.now() - lastTeacherFetchTime < TEACHER_CACHE_DURATION) {
-      setExams(cachedExams);
-      return;
-    }
+
     setIsRefreshing(true);
     setError(null);
     try {
@@ -74,8 +66,6 @@ export default function TeacherDashboard() {
         return titleA.localeCompare(titleB);
       });
       setExams(examsList);
-      cachedExams = examsList;
-      lastTeacherFetchTime = Date.now();
     } catch (err: any) {
       console.error(err);
       if (err.message?.includes('Quota')) {
@@ -88,10 +78,7 @@ export default function TeacherDashboard() {
 
   const fetchStudentsData = async (forceRefresh = false) => {
     if (!appUser?.uid) return;
-    if (!forceRefresh && cachedStudents && Date.now() - lastTeacherFetchTime < TEACHER_CACHE_DURATION) {
-      setStudents(cachedStudents);
-      return;
-    }
+
     setIsRefreshing(true);
     setError(null);
     try {
@@ -118,8 +105,6 @@ export default function TeacherDashboard() {
         return (a.name || '').localeCompare(b.name || '', 'vi');
       });
       setStudents(studentsList);
-      cachedStudents = studentsList;
-      lastTeacherFetchTime = Date.now();
     } catch (err: any) {
       console.error(err);
       if (err.message?.includes('Quota')) {
@@ -174,6 +159,7 @@ export default function TeacherDashboard() {
       await updateStudentContactIndex(db, indexData);
       await signOut(secondaryAuth);
       setNewStudent({ name: '', email: '', password: '', className: '', facebook: '' });
+      await fetchStudentsData(true);
       alert('Tạo học sinh thành công!');
     } catch (error: any) {
       console.error("Error creating student:", error);
@@ -333,6 +319,7 @@ export default function TeacherDashboard() {
           alert('LỖI CẤU HÌNH FIREBASE:\n\nBạn CẦN BẬT "Email/Password" trong Authentication -> Sign-in method để nhập học sinh từ Excel.');
         } else {
           await syncGlobalStudentIndexes(db);
+          await fetchStudentsData(true);
           let msg = `Nhập thành công: ${successCount} học sinh.\n`;
           if (errorCount > 0) {
             msg += `Thất bại: ${errorCount} dòng.\nChi tiết lỗi:\n`;
