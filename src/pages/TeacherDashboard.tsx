@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../lib/AuthContext';
 import { db, handleFirestoreError, OperationType, syncClassExamIndexes, updateStudentManagementIndex, deleteStudentFromIndexes, syncGlobalStudentIndexes } from '../lib/firebase';
-import { collection, query, where, getDocs, addDoc, doc, setDoc, deleteDoc, updateDoc, getDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, addDoc, doc, setDoc, deleteDoc, updateDoc, getDoc, onSnapshot } from 'firebase/firestore';
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, updateEmail, updatePassword, deleteUser } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
