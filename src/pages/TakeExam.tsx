@@ -141,159 +141,20 @@ export default function TakeExam() {
       let essayGrades: Record<string, any> = {};
       const essayQuestions = exam.questions.filter((q: any) => q.type === 'essay');
 
-      // Convert essayImages (Base64) to Firestore documents to prevent 1MB document limit
-      const essayImageRefs: Record<string, string[]> = {};
-      for (const qId of Object.keys(essayImages)) {
-        essayImageRefs[qId] = [];
-        for (let i = 0; i < essayImages[qId].length; i++) {
-          const b64 = essayImages[qId][i];
-          const imgDocRef = await addDoc(collection(db, 'submission_images'), {
-            examId: exam.id,
-            studentId: appUser.uid,
-            questionId: qId,
-            base64Data: b64,
-            createdAt: new Date().toISOString()
-          });
-          essayImageRefs[qId].push(imgDocRef.id);
-        }
-      }
+      // Tối ưu hóa: Thay vì tạo các document mới trong collection 'submission_images' (gây tốn Quota Writes rất lớn),
+      // chúng ta nhúng trực tiếp chuỗi base64 (chỉ khoảng 30KB - 80KB vì đã nén) vào submission data.
+      const essayImagesMap = { ...essayImages };
 
-      // Automatic AI grading for essays if they exist - Optimized Batching
+      // Chấm điểm tự luận: Giáo viên bây giờ sẽ chủ động bấm nút "Chấm tự luận AI" 
+      // trong bảng điều khiển thay vì chấm tự động lúc nộp. Việc tự động chấm tiêu tốn Quota AI 
+      // cực kỳ nhanh và làm chậm việc nộp bài của học sinh.
       if (essayQuestions.length > 0) {
-        const ai = getAI();
-        const batchEssayData = essayQuestions.map((q: any) => ({
-          questionId: q.id,
-          content: q.content,
-          correctAnswer: q.correctAnswer || "",
-          explanation: q.explanation || "Không có barem cụ thể.",
-          images: essayImages[q.id] || []
-        })).filter((item: any) => item.images.length > 0);
-
-        if (batchEssayData.length > 0) {
-          let attempts = 0;
-          let graded = false;
-
-          while (attempts < 3 && !graded) {
-            try {
-              const prompt = `
-                Bạn là một giám khảo chấm thi vô cùng nghiêm ngặt và chính xác. 
-                Nhiệm vụ của bạn là chấm điểm TOÀN BỘ các câu hỏi tự luận của học sinh dựa trên ảnh chụp bài làm, ĐÁP ÁN và BAREM ĐIỂM.
-                
-                DANH SÁCH CÁC CÂU HỎI CẦN CHẤM:
-                ${batchEssayData.map((d: any, i: number) => `
-                --- CÂU ${i + 1} (ID: ${d.questionId}) ---
-                NỘI DUNG: ${d.content}
-                ĐÁP ÁN CHUẨN: ${d.correctAnswer}
-                BAREM/LỜI GIẢI: ${d.explanation}
-                `).join('\n')}
-                
-                QUY TẮC CHẤM ĐIỂM:
-                1. Đối chiếu kỹ từng bài làm với barem tương ứng.
-                2. Điểm số (score) tuyệt đối không vượt quá điểm tối đa (maxScore) trong barem. Nếu không rõ maxScore, mặc định là 1.0.
-                3. Đưa ra nhận xét (feedback) ngắn gọn, súc tích về lỗi sai hoặc ưu điểm.
-                
-                TRẢ VỀ KẾT QUẢ DƯỚI DẠNG JSON CHUẨN MẢNG CÁC ĐỐI TƯỢNG (ARRAY OF OBJECTS):
-                [
-                  { 
-                    "questionId": "id_câu_hỏi",
-                    "maxScore": number, 
-                    "score": number, 
-                    "feedback": string 
-                  },
-                  ...
-                ]
-              `;
-
-              // Prepare parts for multiple images from different questions
-              const allImagesParts = [];
-              for (const d of batchEssayData) {
-                for (const url of d.images) {
-                  let base64Data = '';
-                  if (url.startsWith('data:')) {
-                    base64Data = url.split(',')[1];
-                  } else {
-                    const response = await fetch(url);
-                    const blob = await response.blob();
-                    const base64Str = await new Promise<string>((resolve) => {
-                      const reader = new FileReader();
-                      reader.onloadend = () => resolve(reader.result as string);
-                      reader.readAsDataURL(blob);
-                    });
-                    base64Data = base64Str.split(',')[1];
-                  }
-                  allImagesParts.push({
-                    inlineData: { mimeType: 'image/jpeg', data: base64Data }
-                  });
-                }
-              }
-
-              const response = await ai.models.generateContent({
-                model: 'gemini-1.5-flash',
-                contents: [{
-                  role: 'user',
-                  parts: [
-                    ...allImagesParts,
-                    { text: prompt }
-                  ]
-                }],
-                config: {
-                  responseMimeType: 'application/json',
-                  responseSchema: {
-                    type: Type.ARRAY,
-                    items: {
-                      type: Type.OBJECT,
-                      properties: {
-                        questionId: { type: Type.STRING },
-                        maxScore: { type: Type.NUMBER },
-                        score: { type: Type.NUMBER },
-                        feedback: { type: Type.STRING }
-                      },
-                      required: ["questionId", "maxScore", "score", "feedback"]
-                    }
-                  }
-                }
-              });
-
-              const results = JSON.parse(response.text || '[]');
-              results.forEach((res: any) => {
-                essayGrades[res.questionId] = {
-                  score: res.score,
-                  maxScore: res.maxScore,
-                  feedback: res.feedback
-                };
-                finalScore += Number(res.score || 0);
-                if (Number(res.score || 0) === 0) {
-                  incorrectQuestions.push(res.questionId);
-                }
-              });
-              
-              // Map questions that didn't get a result from AI for some reason
-              batchEssayData.forEach((d: any) => {
-                if (!essayGrades[d.questionId]) {
-                  essayGrades[d.questionId] = { score: 0, feedback: "AI chưa thể chấm câu này. Vui lòng đợi giáo viên." };
-                }
-              });
-
-              graded = true;
-            } catch (aiErr) {
-              attempts++;
-              console.error(`Batch AI Grading failed, attempt ${attempts}`, aiErr);
-              if (attempts >= 3) {
-                batchEssayData.forEach((d: any) => {
-                  essayGrades[d.questionId] = { score: 0, feedback: "Lỗi khi chấm điểm tự động. Vui lòng báo giáo viên." };
-                });
-              } else {
-                await new Promise(resolve => setTimeout(resolve, 2000 * attempts));
-              }
-            }
-          }
-        }
-        
-        // Handle cases where student didn't upload image for some questions
         essayQuestions.forEach((q: any) => {
           if (!essayImages[q.id] || essayImages[q.id].length === 0) {
             essayGrades[q.id] = { score: 0, feedback: "Học sinh không nộp bài giải." };
             incorrectQuestions.push(q.id);
+          } else {
+            essayGrades[q.id] = { score: 0, feedback: "Đang chờ giáo viên chấm điểm (Chưa chấm)." };
           }
         });
       }
@@ -302,10 +163,10 @@ export default function TakeExam() {
         examId: exam.id,
         studentId: appUser.uid,
         answers: JSON.stringify(answers),
-        essayImages: JSON.stringify(essayImageRefs),
+        essayImages: JSON.stringify(essayImagesMap),
         essayGrades: JSON.stringify(essayGrades),
         score: finalScore,
-        status: 'graded',
+        status: essayQuestions.length > 0 ? 'pending_grade' : 'graded',
         incorrectQuestions,
         submittedAt: new Date().toISOString()
       };

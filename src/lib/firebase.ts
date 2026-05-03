@@ -22,38 +22,50 @@ export enum OperationType {
 
 import { collection, query, where, getDocs, doc, setDoc } from 'firebase/firestore';
 
-export async function updateStudentContactIndex(dbInstance: any, student: any) {
-  try {
-    const data = {
-      [student.uid || student.id]: {
-        id: student.uid || student.id,
-        name: student.name || '',
-        className: student.className || '',
-        email: student.email || '',
-        phone: student.phone || '',
-        facebook: student.facebook || ''
-      }
-    };
-    await setDoc(doc(dbInstance, 'admin_indexes', 'contacts_map'), data, { merge: true });
-  } catch (err) {
-    console.error('Error updating contacts_map index:', err);
-  }
-}
-
 export async function updateStudentManagementIndex(dbInstance: any, student: any) {
   try {
-    const data = {
-      [student.uid || student.id]: {
-        id: student.uid || student.id,
-        name: student.name || '',
-        className: student.className || '',
-        email: student.email || '',
-        password: student.password || ''
+    const studentId = student.uid || student.id;
+    if (!studentId) return;
+
+    // Use updateDoc to update only the fields provided in the student object
+    const { updateDoc } = await import('firebase/firestore');
+    
+    const updateData: Record<string, any> = {};
+    const allowableFields = ['id', 'name', 'className', 'email', 'password', 'phone', 'facebook'];
+    
+    allowableFields.forEach(field => {
+      if (student[field] !== undefined) {
+        updateData[`${studentId}.${field}`] = student[field];
       }
-    };
-    await setDoc(doc(dbInstance, 'admin_indexes', 'students_map'), data, { merge: true });
-  } catch (err) {
-    console.error('Error updating students_map index:', err);
+    });
+
+    // We still ensure the 'id' field is present if it's a new entry
+    updateData[`${studentId}.id`] = studentId;
+
+    await updateDoc(doc(dbInstance, 'admin_indexes', 'students_map'), updateData);
+  } catch (err: any) {
+    if (err.code === 'not-found') {
+      // If the document doesn't exist, fallback to setDoc
+      try {
+        const studentId = student.uid || student.id;
+        const initialData = {
+          [studentId]: {
+            id: studentId,
+            name: student.name || '',
+            className: student.className || '',
+            email: student.email || '',
+            password: student.password || '',
+            phone: student.phone || '',
+            facebook: student.facebook || ''
+          }
+        };
+        await setDoc(doc(dbInstance, 'admin_indexes', 'students_map'), initialData, { merge: true });
+      } catch(e) {
+         console.error('Error falling back to setDoc:', e);
+      }
+    } else {
+      console.error('Error updating students_map index:', err);
+    }
   }
 }
 
@@ -62,11 +74,6 @@ export async function deleteStudentFromIndexes(dbInstance: any, studentId: strin
   // Firestore currently does not have a simple way to delete a specific key from a map via setDoc/merge.
   // We use updateDoc with deleteField().
   const { updateDoc, deleteField } = await import('firebase/firestore');
-  try {
-    await updateDoc(doc(dbInstance, 'admin_indexes', 'contacts_map'), {
-      [studentId]: deleteField()
-    });
-  } catch (err) {}
   try {
     await updateDoc(doc(dbInstance, 'admin_indexes', 'students_map'), {
       [studentId]: deleteField()
@@ -79,7 +86,6 @@ export async function syncGlobalStudentIndexes(dbInstance: any) {
     const q = query(collection(dbInstance, 'users'), where('role', '==', 'student'));
     const snap = await getDocs(q);
     const studentsMap: any = {};
-    const contactsMap: any = {};
 
     snap.forEach(d => {
       const data = d.data();
@@ -89,20 +95,13 @@ export async function syncGlobalStudentIndexes(dbInstance: any) {
         name: data.name || '',
         className: data.className || '',
         email: data.email || '',
-        password: data.password || ''
-      };
-      contactsMap[stId] = {
-        id: stId,
-        name: data.name || '',
-        className: data.className || '',
-        email: data.email || '',
+        password: data.password || '',
         phone: data.phone || '',
         facebook: data.facebook || ''
       };
     });
 
     await setDoc(doc(dbInstance, 'admin_indexes', 'students_map'), studentsMap);
-    await setDoc(doc(dbInstance, 'admin_indexes', 'contacts_map'), contactsMap);
   } catch (err) {
     console.error('Error syncing global student indexes:', err);
   }

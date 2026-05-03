@@ -5,7 +5,7 @@ import { collection, query, where, getDocs, doc, updateDoc, orderBy, limit, dele
 import { Link } from 'react-router-dom';
 import { LogOut, PlayCircle, CheckCircle, XCircle, RefreshCw, MessageCircle, X, AlertCircle, Bell, Trash2 } from 'lucide-react';
 
-import { updateStudentContactIndex } from '../lib/firebase';
+import { updateStudentManagementIndex } from '../lib/firebase';
 
 let cachedExams: any[] | null = null;
 let cachedSubmissions: any[] | null = null;
@@ -34,7 +34,7 @@ export default function StudentDashboard() {
       });
       
       // Update global contacts index
-      await updateStudentContactIndex(db, {
+      await updateStudentManagementIndex(db, {
         ...appUser,
         facebook: fbLink,
         phone: phone

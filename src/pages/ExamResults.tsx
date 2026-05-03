@@ -22,6 +22,7 @@ export default function ExamResults() {
   const [viewingSubmissionDetails, setViewingSubmissionDetails] = useState<any>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isGradingEssay, setIsGradingEssay] = useState<string | null>(null);
+  const [manualScoreInputs, setManualScoreInputs] = useState<Record<string, { score: number, feedback: string }>>({});
 
   const uniqueSubmissions = useMemo(() => {
     const map = new Map();
@@ -348,6 +349,76 @@ export default function ExamResults() {
     } catch (error: any) {
       console.error("Batch AI Grading Error:", error);
       alert('Lỗi khi chấm điểm AI: ' + error.message);
+    } finally {
+      setIsGradingEssay(null);
+    }
+  };
+
+  const handleManualGradeEssay = async (submission: any, questionId: string, manualScore: number, manualFeedback: string) => {
+    if (!exam || !submission) return;
+    setIsGradingEssay(questionId);
+    try {
+      const q = exam.questions.find((q: any) => q.id === questionId);
+      if (!q) throw new Error('Không tìm thấy câu hỏi');
+
+      const grading = {
+        score: Number(manualScore) || 0,
+        maxScore: Number(q.maxScore || 1.0),
+        feedback: manualFeedback || 'Đã chấm thủ công.'
+      };
+
+      const currentAnswers = typeof submission.answers === 'string' ? JSON.parse(submission.answers || '{}') : submission.answers;
+      const oldEssayGrades = typeof submission.essayGrades === 'string' ? JSON.parse(submission.essayGrades || '{}') : (submission.essayGrades || {});
+      const newEssayGrades = { ...oldEssayGrades, [questionId]: grading };
+
+      let totalMcScore = 0;
+      exam.questions.forEach((eq: any) => {
+        if (eq.type !== 'essay') {
+          const ans = currentAnswers[eq.id];
+          if (eq.type === 'multiple_choice' && ans === eq.correctAnswer) {
+            totalMcScore += 0.25;
+          } else if (eq.type === 'short_answer') {
+            const sAns = String(ans || '').trim().toLowerCase().replace(/\s+/g, '');
+            const cAns = String(eq.correctAnswer || '').trim().toLowerCase().replace(/\s+/g, '');
+            if (sAns === cAns) totalMcScore += 0.25;
+          } else if (eq.type === 'true_false' && eq.options) {
+            const sAnsMap = Array.isArray(ans) ? ans : [];
+            const cAnsMap = Array.isArray(eq.correctAnswer) ? eq.correctAnswer : [];
+            let tfCorrect = 0;
+            sAnsMap.forEach((v: boolean|null, i: number) => {
+              if (v !== null && v === cAnsMap[i]) tfCorrect += 1;
+            });
+            if (tfCorrect === eq.options.length) totalMcScore += 1.0;
+            else if (tfCorrect > 0) totalMcScore += tfCorrect * (1.0 / eq.options.length);
+          }
+        }
+      });
+
+      const totalEssayScore = (Object.values(newEssayGrades) as any[]).reduce((acc: number, curr: any) => acc + Number(curr.score || 0), 0);
+      const newTotalScore = totalMcScore + totalEssayScore;
+
+      await updateDoc(doc(db, 'submissions', submission.id), {
+        essayGrades: JSON.stringify(newEssayGrades),
+        score: newTotalScore,
+        status: 'graded'
+      });
+
+      const updatedSummary = exam.submissionSummary.map((s: any) => {
+        if (s.submissionId === submission.id) {
+          return { ...s, score: newTotalScore };
+        }
+        return s;
+      });
+      await updateDoc(doc(db, 'exams', exam.id), { submissionSummary: updatedSummary });
+      syncStudentSubmissionIndex(submission.studentId, db).catch(console.error);
+
+      setViewingSubmissionDetails({ ...submission, essayGrades: JSON.stringify(newEssayGrades), score: newTotalScore });
+      setExam({ ...exam, submissionSummary: updatedSummary });
+      setSubmissions(submissions.map(s => s.id === submission.id ? { ...s, score: newTotalScore } : s));
+
+    } catch (error: any) {
+      console.error("Manual Grading Error:", error);
+      alert('Lỗi khi lưu điểm: ' + error.message);
     } finally {
       setIsGradingEssay(null);
     }
@@ -948,14 +1019,48 @@ export default function ExamResults() {
                               {grade ? (
                                 <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-200">
                                   <div className="flex justify-between items-center mb-2">
-                                    <div className="text-sm font-bold text-indigo-700 uppercase">Kết quả chấm điểm AI</div>
-                                    <div className="text-2xl font-black text-indigo-600">{grade.score} <span className="text-sm font-bold">điểm</span></div>
+                                    <div className="text-sm font-bold text-indigo-700 uppercase">Kết quả chấm điểm</div>
+                                    <div className="text-2xl font-black text-indigo-600">{grade.score} <span className="text-sm font-bold">/ {q.maxScore || 1.0} điểm</span></div>
                                   </div>
                                   <div className="text-gray-700 text-sm whitespace-pre-wrap italic">"{grade.feedback}"</div>
+                                  <button onClick={() => {
+                                    setManualScoreInputs({ ...manualScoreInputs, [qId]: { score: grade.score, feedback: grade.feedback } });
+                                  }} className="mt-3 text-xs font-bold text-indigo-600 hover:text-indigo-800 underline">Chấm lại thủ công</button>
                                 </div>
-                              ) : (
-                                <div className="bg-gray-100 p-4 rounded-xl text-center text-gray-500 text-sm italic">
-                                  Chưa chấm điểm cho câu này. Hãy nhấn nút "AI Chấm điểm" ở trên.
+                              ) : null}
+                              
+                              {(!grade || manualScoreInputs[qId]) && (
+                                <div className="bg-gray-50 border border-gray-200 p-4 rounded-xl space-y-3">
+                                  <div className="text-sm font-bold text-gray-700">Chấm điểm thủ công (Tiết kiệm Qouta)</div>
+                                  <div className="flex items-center space-x-3">
+                                    <div className="flex items-center space-x-2">
+                                      <input 
+                                        type="number" 
+                                        className="w-20 px-3 py-2 border rounded shadow-sm text-sm" 
+                                        placeholder="Điểm"
+                                        min="0"
+                                        max={q.maxScore || 1.0}
+                                        step="0.25"
+                                        value={manualScoreInputs[qId]?.score ?? ''}
+                                        onChange={(e) => setManualScoreInputs({...manualScoreInputs, [qId]: { ...manualScoreInputs[qId], score: parseFloat(e.target.value) }})}
+                                      />
+                                      <span className="text-sm text-gray-500 font-medium">/ {q.maxScore || 1.0} điểm</span>
+                                    </div>
+                                    <input 
+                                      type="text" 
+                                      className="flex-1 px-3 py-2 border rounded shadow-sm text-sm" 
+                                      placeholder="Lời phê (Tùy chọn)..."
+                                      value={manualScoreInputs[qId]?.feedback ?? ''}
+                                      onChange={(e) => setManualScoreInputs({...manualScoreInputs, [qId]: { ...manualScoreInputs[qId], feedback: e.target.value }})}
+                                    />
+                                    <button 
+                                      onClick={() => handleManualGradeEssay(sub, qId, manualScoreInputs[qId]?.score || 0, manualScoreInputs[qId]?.feedback || '')}
+                                      disabled={isGradingEssay === qId || manualScoreInputs[qId]?.score === undefined || isNaN(manualScoreInputs[qId]?.score)}
+                                      className="px-4 py-2 bg-emerald-600 text-white rounded text-sm font-bold hover:bg-emerald-700 transition disabled:opacity-50"
+                                    >
+                                      {isGradingEssay === qId ? 'Đang lưu...' : 'Lưu Điểm'}
+                                    </button>
+                                  </div>
                                 </div>
                               )}
                             </div>

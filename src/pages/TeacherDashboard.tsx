@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../lib/AuthContext';
-import { db, handleFirestoreError, OperationType, syncClassExamIndexes, updateStudentManagementIndex, updateStudentContactIndex, deleteStudentFromIndexes, syncGlobalStudentIndexes } from '../lib/firebase';
+import { db, handleFirestoreError, OperationType, syncClassExamIndexes, updateStudentManagementIndex, deleteStudentFromIndexes, syncGlobalStudentIndexes } from '../lib/firebase';
 import { collection, query, where, getDocs, addDoc, doc, setDoc, deleteDoc, updateDoc, getDoc } from 'firebase/firestore';
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, updateEmail, updatePassword, deleteUser } from 'firebase/auth';
@@ -44,92 +44,64 @@ export default function TeacherDashboard() {
   const [syncingExamId, setSyncingExamId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchExamsData = async (forceRefresh = false) => {
-    if (!appUser?.uid) return;
-
-    setIsRefreshing(true);
-    setError(null);
-    try {
-      const qExams = query(collection(db, 'exams'), where('teacherId', '==', appUser.uid));
-      const examSnap = await getDocs(qExams);
-      const examsList = examSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      examsList.sort((a: any, b: any) => {
-        const titleA = a.title || '';
-        const titleB = b.title || '';
-        const matchA = titleA.match(/\d+/);
-        const matchB = titleB.match(/\d+/);
-        if (matchA && matchB) {
-          const numA = parseInt(matchA[0], 10);
-          const numB = parseInt(matchB[0], 10);
-          if (numA !== numB) return numA - numB;
-        }
-        return titleA.localeCompare(titleB);
-      });
-      setExams(examsList);
-    } catch (err: any) {
-      console.error(err);
-      if (err.message?.includes('Quota')) {
-        setError('Hệ thống đang quá tải (vượt quá giới hạn truy cập miễn phí của Firebase).');
-      }
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
-
-  const fetchStudentsData = async (forceRefresh = false) => {
-    if (!appUser?.uid) return;
-
-    setIsRefreshing(true);
-    setError(null);
-    try {
-      const mapName = activeTab === 'facebook' ? 'contacts_map' : 'students_map';
-      const mapSnap = await getDoc(doc(db, 'admin_indexes', mapName));
-      let studentsList: any[] = [];
-      if (mapSnap.exists()) {
-        studentsList = Object.values(mapSnap.data() || {});
-      } else {
-        // If index doesn't exist yet, we can't show anything. User can click sync button to populate.
-      }
-      
-      studentsList.sort((a: any, b: any) => {
-        const classA = a.className || '';
-        const classB = b.className || '';
-        const classCompare = classA.localeCompare(classB, 'vi');
-        if (classCompare !== 0) return classCompare;
-        const getFirstName = (fullName: string) => {
-          const parts = fullName.trim().split(' ');
-          return parts[parts.length - 1] || '';
-        };
-        const nameCompare = getFirstName(a.name || '').localeCompare(getFirstName(b.name || ''), 'vi');
-        if (nameCompare !== 0) return nameCompare;
-        return (a.name || '').localeCompare(b.name || '', 'vi');
-      });
-      setStudents(studentsList);
-    } catch (err: any) {
-      console.error(err);
-      if (err.message?.includes('Quota')) {
-        setError('Hệ thống đang quá tải (vượt quá giới hạn truy cập miễn phí của Firebase).');
-      }
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
-
   useEffect(() => {
+    if (!appUser?.uid) return;
+
     if (activeTab === 'exams') {
-      fetchExamsData();
-    } else {
-      fetchStudentsData();
+      setIsRefreshing(true);
+      const qExams = query(collection(db, 'exams'), where('teacherId', '==', appUser.uid));
+      const unsubscribe = onSnapshot(qExams, (snapshot) => {
+        const examsList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        examsList.sort((a: any, b: any) => {
+          const titleA = a.title || '';
+          const titleB = b.title || '';
+          const matchA = titleA.match(/\d+/);
+          const matchB = titleB.match(/\d+/);
+          if (matchA && matchB) {
+            const numA = parseInt(matchA[0], 10);
+            const numB = parseInt(matchB[0], 10);
+            if (numA !== numB) return numA - numB;
+          }
+          return titleA.localeCompare(titleB);
+        });
+        setExams(examsList);
+        setIsRefreshing(false);
+        setError(null);
+      }, (err) => {
+        console.error(err);
+        handleFirestoreError(err, OperationType.LIST, 'exams');
+        setIsRefreshing(false);
+      });
+      return () => unsubscribe();
+    } else if (activeTab === 'students') {
+      setIsRefreshing(true);
+      const qStudents = query(collection(db, 'users'), where('role', '==', 'student'));
+      const unsubscribe = onSnapshot(qStudents, (snapshot) => {
+        const studentsList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        studentsList.sort((a: any, b: any) => {
+          const classA = a.className || '';
+          const classB = b.className || '';
+          const classCompare = classA.localeCompare(classB, 'vi');
+          if (classCompare !== 0) return classCompare;
+          const getFirstName = (fullName: string) => {
+            const parts = fullName.trim().split(' ');
+            return parts[parts.length - 1] || '';
+          };
+          const nameCompare = getFirstName(a.name || '').localeCompare(getFirstName(b.name || ''), 'vi');
+          if (nameCompare !== 0) return nameCompare;
+          return (a.name || '').localeCompare(b.name || '', 'vi');
+        });
+        setStudents(studentsList);
+        setIsRefreshing(false);
+        setError(null);
+      }, (err) => {
+        console.error(err);
+        handleFirestoreError(err, OperationType.LIST, 'users');
+        setIsRefreshing(false);
+      });
+      return () => unsubscribe();
     }
   }, [activeTab, appUser?.uid]);
-
-  const fetchData = async (forceRefresh = false) => {
-    if (activeTab === 'exams') {
-      await fetchExamsData(forceRefresh);
-    } else {
-      await fetchStudentsData(forceRefresh);
-    }
-  };
 
   const handleCreateStudent = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -156,10 +128,8 @@ export default function TeacherDashboard() {
         facebook: ''
       };
       await updateStudentManagementIndex(db, indexData);
-      await updateStudentContactIndex(db, indexData);
       await signOut(secondaryAuth);
       setNewStudent({ name: '', email: '', password: '', className: '', facebook: '' });
-      await fetchStudentsData(true);
       alert('Tạo học sinh thành công!');
     } catch (error: any) {
       console.error("Error creating student:", error);
@@ -186,7 +156,6 @@ export default function TeacherDashboard() {
             facebook: ''
           };
           await updateStudentManagementIndex(db, updateData);
-          await updateStudentContactIndex(db, updateData);
           await signOut(secondaryAuth);
           setNewStudent({ name: '', email: '', password: '', className: '', facebook: '' });
           alert('Tài khoản đã tồn tại. Dữ liệu đã được đồng bộ thành công!');
@@ -239,6 +208,7 @@ export default function TeacherDashboard() {
         let missingDataCount = 0;
         let wrongPasswordCount = 0;
         let otherErrorMessages: string[] = [];
+        const batchUpdates: Record<string, any> = {};
 
         for (const row of json) {
           const name = row['FullName'] || row['Họ và tên'];
@@ -266,6 +236,15 @@ export default function TeacherDashboard() {
                 role: 'student',
                 createdAt: new Date().toISOString()
               });
+              batchUpdates[userCredential.user.uid] = {
+                id: userCredential.user.uid,
+                email: email,
+                name: String(name).trim(),
+                className: String(className).trim(),
+                password: String(password),
+                facebook: String(facebook).trim(),
+                phone: ''
+              };
               await signOut(secondaryAuth);
               successCount++;
             } catch (err: any) {
@@ -283,6 +262,15 @@ export default function TeacherDashboard() {
                     role: 'student',
                     createdAt: new Date().toISOString()
                   });
+                  batchUpdates[signInCredential.user.uid] = {
+                    id: signInCredential.user.uid,
+                    email: email,
+                    name: String(name).trim(),
+                    className: String(className).trim(),
+                    password: String(password),
+                    facebook: String(facebook).trim(),
+                    phone: ''
+                  };
                   await signOut(secondaryAuth);
                   successCount++;
                 } catch (signInErr: any) {
@@ -318,8 +306,9 @@ export default function TeacherDashboard() {
           setStudentError('LỖI CẤU HÌNH: Chức năng Email/Password chưa được bật trong Firebase Console.');
           alert('LỖI CẤU HÌNH FIREBASE:\n\nBạn CẦN BẬT "Email/Password" trong Authentication -> Sign-in method để nhập học sinh từ Excel.');
         } else {
-          await syncGlobalStudentIndexes(db);
-          await fetchStudentsData(true);
+          if (Object.keys(batchUpdates).length > 0) {
+            await setDoc(doc(db, 'admin_indexes', 'students_map'), batchUpdates, { merge: true });
+          }
           let msg = `Nhập thành công: ${successCount} học sinh.\n`;
           if (errorCount > 0) {
             msg += `Thất bại: ${errorCount} dòng.\nChi tiết lỗi:\n`;
@@ -462,24 +451,7 @@ export default function TeacherDashboard() {
       };
       await updateStudentManagementIndex(db, newMgmtData);
       
-      // Update contact name, class, email (keep existing phone/fb)
-      try {
-        const contactMapDoc = await getDoc(doc(db, 'admin_indexes', 'contacts_map'));
-        let phone = '';
-        let facebook = '';
-        if (contactMapDoc.exists() && contactMapDoc.data()[editingStudent.id]) {
-          phone = contactMapDoc.data()[editingStudent.id].phone || '';
-          facebook = contactMapDoc.data()[editingStudent.id].facebook || '';
-        }
-        await updateStudentContactIndex(db, {
-          ...newMgmtData,
-          phone,
-          facebook
-        });
-      } catch(e) {}
-      
       setEditingStudent(null);
-      fetchStudentsData(true);
     } catch (error: any) {
       console.error("Firestore update error:", error);
       setUpdateStudentError("Lỗi cập nhật dữ liệu: " + (error.message || "Không xác định"));
@@ -496,16 +468,12 @@ export default function TeacherDashboard() {
         facebook: editFbData.facebook,
         phone: editFbData.phone
       });
-      await updateStudentContactIndex(db, {
-        id: editingFbStudent.id,
-        name: editingFbStudent.name,
-        className: editingFbStudent.className,
-        email: editingFbStudent.email,
+      await updateStudentManagementIndex(db, {
+        ...editingFbStudent,
         phone: editFbData.phone,
         facebook: editFbData.facebook
       });
       setEditingFbStudent(null);
-      fetchStudentsData(true);
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `users/${editingFbStudent.id}`);
     }
@@ -535,7 +503,6 @@ export default function TeacherDashboard() {
       await deleteDoc(doc(db, 'users', studentToDelete));
       await deleteStudentFromIndexes(db, studentToDelete);
       setStudentToDelete(null);
-      fetchStudentsData(true);
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `users/${studentToDelete}`);
     } finally {
@@ -550,7 +517,6 @@ export default function TeacherDashboard() {
       await Promise.all(deletePromises);
       await syncGlobalStudentIndexes(db);
       setIsDeletingAll(false);
-      fetchStudentsData(true);
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `users`);
     }
@@ -650,9 +616,6 @@ export default function TeacherDashboard() {
               <h1 className="text-xl font-bold text-white tracking-wide">Giáo viên: {appUser?.name}</h1>
             </div>
             <div className="flex items-center space-x-4">
-              <button onClick={() => fetchData(true)} disabled={isRefreshing} className="text-indigo-100 hover:text-white flex items-center transition-colors font-medium mr-2">
-                <RefreshCw className={`w-5 h-5 mr-1 ${isRefreshing ? 'animate-spin' : ''}`} /> Làm mới
-              </button>
               <button onClick={logout} className="text-indigo-100 hover:text-white flex items-center transition-colors font-medium">
                 <LogOut className="w-5 h-5 mr-1" /> Đăng xuất
               </button>
@@ -870,40 +833,6 @@ export default function TeacherDashboard() {
                 <div className="px-6 py-5 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
                   <h3 className="text-lg font-bold text-gray-900">Danh sách học sinh</h3>
                   <div className="flex items-center space-x-3">
-                    <button 
-                      onClick={async () => {
-                        setIsRefreshing(true);
-                        try {
-                          // Sync students
-                          await syncGlobalStudentIndexes(db);
-                          
-                          // Sync exams for all classes found in exams
-                          const qExamsSync = query(collection(db, 'exams'), where('teacherId', '==', appUser.uid));
-                          const examsSnap = await getDocs(qExamsSync);
-                          const allClasses = new Set<string>();
-                          examsSnap.forEach(d => {
-                            const classes = d.data().assignedClasses || [];
-                            classes.forEach((c: string) => allClasses.add(c));
-                          });
-                          if (allClasses.size > 0) {
-                            await syncClassExamIndexes(Array.from(allClasses), db);
-                          }
-
-                          await fetchData(true);
-                          alert('Đã đồng bộ toàn bộ dữ liệu (Học sinh & Đề thi) thành công!');
-                        } catch (err) {
-                          console.error(err);
-                          alert('Lỗi khi đồng bộ: ' + (err instanceof Error ? err.message : String(err)));
-                        } finally {
-                          setIsRefreshing(false);
-                        }
-                      }}
-                      disabled={isRefreshing}
-                      className="text-sm bg-blue-50 text-blue-600 hover:bg-blue-100 px-4 py-2 rounded-lg flex items-center font-bold transition-colors disabled:opacity-50"
-                      title="Sử dụng khi danh sách học sinh hoặc đề thi bị thiếu thông tin hoặc sai lệch"
-                    >
-                      <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} /> Đồng bộ phụ lục
-                    </button>
                     {students.length > 0 && (
                       <button 
                         onClick={() => setIsDeletingAll(true)}
