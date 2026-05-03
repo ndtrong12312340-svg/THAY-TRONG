@@ -62,7 +62,7 @@ service cloud.firestore {
              (!('essayImages' in data) || (data.essayImages is string && data.essayImages.size() < 10 * 1024 * 1024)) &&
              (!('essayGrades' in data) || (data.essayGrades is string && data.essayGrades.size() < 100000)) &&
              data.score is number && data.score >= 0 &&
-             (!('status' in data) || data.status in ['submitted', 'graded']) &&
+             (!('status' in data) || data.status in ['submitted', 'graded', 'pending_grade']) &&
              data.incorrectQuestions is list && data.incorrectQuestions.size() <= 120 &&
              data.submittedAt is string;
     }
