@@ -73,30 +73,35 @@ export default function TeacherDashboard() {
         setIsRefreshing(false);
       });
       return () => unsubscribe();
-    } else if (activeTab === 'students') {
+    } else if (activeTab === 'students' || activeTab === 'facebook') {
       setIsRefreshing(true);
-      const qStudents = query(collection(db, 'users'), where('role', '==', 'student'));
-      const unsubscribe = onSnapshot(qStudents, (snapshot) => {
-        const studentsList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        studentsList.sort((a: any, b: any) => {
-          const classA = a.className || '';
-          const classB = b.className || '';
-          const classCompare = classA.localeCompare(classB, 'vi');
-          if (classCompare !== 0) return classCompare;
-          const getFirstName = (fullName: string) => {
-            const parts = fullName.trim().split(' ');
-            return parts[parts.length - 1] || '';
-          };
-          const nameCompare = getFirstName(a.name || '').localeCompare(getFirstName(b.name || ''), 'vi');
-          if (nameCompare !== 0) return nameCompare;
-          return (a.name || '').localeCompare(b.name || '', 'vi');
-        });
-        setStudents(studentsList);
+      const studentMapRef = doc(db, 'admin_indexes', 'students_map');
+      const unsubscribe = onSnapshot(studentMapRef, (docSnap) => {
+        if (docSnap.exists()) {
+          const mapData = docSnap.data();
+          const studentsList = Object.values(mapData);
+          studentsList.sort((a: any, b: any) => {
+            const classA = a.className || '';
+            const classB = b.className || '';
+            const classCompare = classA.localeCompare(classB, 'vi');
+            if (classCompare !== 0) return classCompare;
+            const getFirstName = (fullName: string) => {
+              const parts = fullName.trim().split(' ');
+              return parts[parts.length - 1] || '';
+            };
+            const nameCompare = getFirstName(a.name || '').localeCompare(getFirstName(b.name || ''), 'vi');
+            if (nameCompare !== 0) return nameCompare;
+            return (a.name || '').localeCompare(b.name || '', 'vi');
+          });
+          setStudents(studentsList);
+        } else {
+          setStudents([]);
+        }
         setIsRefreshing(false);
         setError(null);
       }, (err) => {
         console.error(err);
-        handleFirestoreError(err, OperationType.LIST, 'users');
+        handleFirestoreError(err, OperationType.GET, 'admin_indexes/students_map');
         setIsRefreshing(false);
       });
       return () => unsubscribe();

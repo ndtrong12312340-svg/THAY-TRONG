@@ -271,7 +271,7 @@ export default function ExamResults() {
       }
 
       const response = await ai.models.generateContent({
-        model: 'gemini-1.5-flash',
+        model: 'gemini-3-flash-preview',
         contents: [{ role: 'user', parts: [...allImagesParts, { text: prompt }] }],
         config: {
           responseMimeType: 'application/json',
@@ -351,6 +351,242 @@ export default function ExamResults() {
       alert('Lỗi khi chấm điểm AI: ' + error.message);
     } finally {
       setIsGradingEssay(null);
+    }
+  };
+
+  const [isBulkGrading, setIsBulkGrading] = useState(false);
+  const handleBulkAIGradeAllStudents = async () => {
+    if (!examId || !exam) return;
+    setIsBulkGrading(true);
+    try {
+      const essayQuestions = exam.questions.filter((q: any) => q.type === 'essay');
+      if (essayQuestions.length === 0) {
+        alert('Đề thi này không có câu hỏi tự luận.');
+        setIsBulkGrading(false);
+        return;
+      }
+
+      // Tối ưu hoá Đọc (Read Quota) cao nhất:
+      // THAY VÌ query toàn bộ collection (gây tốn Read cho cả những bài nháp hoặc nộp nhiều lần):
+      // const qDocs = await getDocs(query(collection(db, 'submissions'), where('examId', '==', examId)));
+      // Chúng ta CHỈ đọc đích danh ID của bài nộp cuối cùng (lấy từ uniqueSubmissions)
+      const fetchPromises = uniqueSubmissions.map(sub => getDoc(doc(db, 'submissions', sub.id)));
+      const rawDocSnaps = await Promise.all(fetchPromises);
+      
+      const rawSubmissions = rawDocSnaps
+        .filter(snap => snap.exists())
+        .map(snap => ({id: snap.id, ...snap.data()}));
+
+      const submissionsToGrade = rawSubmissions.filter((s: any) => {
+        // Chỉ chọn những bài CÓ gửi ảnh tự luận và CHƯA được chấm xong AI (nếu ta có cờ lưu trạng thái)
+        // Hiện tại chỉ check có ảnh tự luận hay không.
+        if (!s.essayImages) return false;
+        
+        // Kiểm tra xem bài này đã chấm tự luận hết chưa (tránh mất tiền AI chấm lại bài đã chấm có điểm)
+        let hasUngradedEssay = false;
+        const parsedImages = typeof s.essayImages === 'string' ? JSON.parse(s.essayImages) : s.essayImages;
+        const parsedGrades = typeof s.essayGrades === 'string' ? JSON.parse(s.essayGrades || '{}') : (s.essayGrades || {});
+        
+        for (const q of essayQuestions) {
+           if (parsedImages[q.id] && parsedImages[q.id].length > 0) {
+              // Điểm == 0 và chưa có feedback (hoặc feedback mặc định là chưa chấm) thì tức là chưa chấm
+              const grade = parsedGrades[q.id];
+              if (!grade || grade.feedback?.includes('Chưa chấm')) {
+                 hasUngradedEssay = true;
+                 break;
+              }
+           }
+        }
+
+        return hasUngradedEssay;
+      });
+
+      if (submissionsToGrade.length === 0) {
+        alert('Không có học sinh nào tải lên ảnh bài tự luận, HOẶC tất cả bài nộp đều đã được chấm xong hết.');
+        setIsBulkGrading(false);
+        return;
+      }
+
+      const BATCH_SIZE = 15;
+      let totalGraded = 0;
+      
+      const newSubmissionsList = [...submissions];
+      let newExamSummary = [...(exam.submissionSummary || [])];
+      
+      for (let i = 0; i < submissionsToGrade.length; i += BATCH_SIZE) {
+        const batchSubs = submissionsToGrade.slice(i, i + BATCH_SIZE);
+        const batchEssayData = [];
+        
+        for (const sub of batchSubs) {
+          const essayImagesMap = typeof sub.essayImages === 'string' ? JSON.parse(sub.essayImages || '{}') : sub.essayImages;
+          for (const q of essayQuestions) {
+            if (essayImagesMap[q.id] && essayImagesMap[q.id].length > 0) {
+              batchEssayData.push({
+                studentId: sub.studentId,
+                submissionId: sub.id,
+                questionId: q.id,
+                content: q.content,
+                correctAnswer: q.correctAnswer || "",
+                explanation: q.explanation || "Không có barem cụ thể.",
+                images: essayImagesMap[q.id]
+              });
+            }
+          }
+        }
+        
+        if (batchEssayData.length === 0) continue;
+
+        const ai = getAI();
+        const prompt = `
+          Bạn là một giám khảo chấm thi vô cùng nghiêm ngặt và chính xác. 
+          Nhiệm vụ của bạn là chấm điểm CÁC CÂU HỎI TỰ LUẬN của MỘT LƯỢNG LỚN HỌC SINH dựa trên ảnh chụp bài làm, ĐÁP ÁN và BAREM ĐIỂM.
+          
+          DANH SÁCH BÀI LÀM CẦN CHẤM CỦA CÁC CHI TIẾT:
+          ${batchEssayData.map((d: any, idx: number) => `
+          --- CHI TIẾT BÀI CHI TIẾT SỐ ${idx + 1} ---
+          ID HỌC SINH (studentId): ${d.studentId}
+          ID BÀI NỘP (submissionId): ${d.submissionId}
+          ID CÂU HỎI (questionId): ${d.questionId}
+          NỘI DUNG CÂU HỎI: ${d.content}
+          ĐÁP ÁN CHUẨN: ${d.correctAnswer}
+          BAREM/LỜI GIẢI: ${d.explanation}
+          `).join('\n')}
+          
+          PHẦN ẢNH BÀI LÀM ĐƯỢC CHÈN NGAY TRONG LỜI NHẮN NÀY LẦN LƯỢT THEO ĐÚNG THỨ TỰ. DỰA VÀO ĐÓ ĐỂ ĐỐI CHIẾU VỚI ID TƯƠNG ỨNG.
+          
+          QUY TẮC CHẤM ĐIỂM:
+          1. Đối chiếu kỹ từng bài làm với barem tương ứng.
+          2. Điểm số (score) tuyệt đối không vượt quá điểm tối đa trong barem.
+          3. TRẢ VỀ KẾT QUẢ DƯỚI DẠNG JSON MẢNG CÁC ĐỐI TƯỢNG BAO GỒM CHÍNH XÁC submissionId, questionId ĐỂ PHÂN BIỆT BÀI LÀM.
+        `;
+
+        const allContentsParts: any[] = [{ text: prompt }];
+
+        for (let idx = 0; idx < batchEssayData.length; idx++) {
+          const d = batchEssayData[idx];
+          allContentsParts.push({ text: `\n\n=== ẢNH CỦA CHI TIẾT SỐ ${idx + 1} (submissionId: ${d.submissionId}, questionId: ${d.questionId}) ===\n` });
+          for (const img of d.images) {
+            let base64Data = '';
+            if (img.startsWith('http')) {
+              const response = await fetch(img);
+              const blob = await response.blob();
+              base64Data = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+                reader.readAsDataURL(blob);
+              });
+            } else {
+              base64Data = img.split(',')[1];
+            }
+            allContentsParts.push({
+              inlineData: { mimeType: 'image/jpeg', data: base64Data }
+            });
+          }
+        }
+
+        allContentsParts.push({ text: "\n\nTRẢ VỀ JSON BAO GỒM CÁC THUỘC TÍNH: submissionId, questionId, score (number), maxScore (number), feedback (string)." });
+
+        const response = await ai.models.generateContent({
+          model: 'gemini-3-flash-preview',
+          contents: [{ role: 'user', parts: allContentsParts }],
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  submissionId: { type: Type.STRING },
+                  questionId: { type: Type.STRING },
+                  maxScore: { type: Type.NUMBER },
+                  score: { type: Type.NUMBER },
+                  feedback: { type: Type.STRING }
+                },
+                required: ["submissionId", "questionId", "maxScore", "score", "feedback"]
+              }
+            }
+          }
+        });
+
+        const results = JSON.parse(response.text || '[]');
+        
+        // Group results by submissionId
+        const resultsBySub: Record<string, any[]> = {};
+        for (const res of results) {
+          if (!resultsBySub[res.submissionId]) resultsBySub[res.submissionId] = [];
+          resultsBySub[res.submissionId].push(res);
+        }
+
+        // Update each submission in DB
+        for (const sub of batchSubs) {
+          const subResults = resultsBySub[sub.id] || [];
+          if (subResults.length === 0) continue; // No grade returned for this sub?
+
+          const oldEssayGrades = typeof sub.essayGrades === 'string' ? JSON.parse(sub.essayGrades || '{}') : (sub.essayGrades || {});
+          const newEssayGrades = { ...oldEssayGrades };
+          
+          subResults.forEach((res: any) => {
+            newEssayGrades[res.questionId] = {
+              score: res.score,
+              maxScore: res.maxScore,
+              feedback: res.feedback
+            };
+          });
+
+          // Re-calculate total score
+          const currentAnswers = typeof sub.answers === 'string' ? JSON.parse(sub.answers || '{}') : sub.answers;
+          let totalMcScore = 0;
+          exam.questions.forEach((eq: any) => {
+            if (eq.type !== 'essay') {
+              const ans = currentAnswers[eq.id];
+              if (eq.type === 'multiple_choice' && ans === eq.correctAnswer) totalMcScore += 0.25;
+              else if (eq.type === 'short_answer') {
+                const sAns = String(ans || '').trim().toLowerCase().replace(/\s+/g, '');
+                const cAns = String(eq.correctAnswer || '').trim().toLowerCase().replace(/\s+/g, '');
+                if (sAns === cAns && sAns !== '') totalMcScore += 0.5;
+              } else if (eq.type === 'true_false') {
+                try {
+                  const cArr = JSON.parse(eq.correctAnswer || '[]');
+                  const sArr = ans || [];
+                  for (let j = 0; j < 4; j++) { if (sArr[j] === cArr[j]) totalMcScore += 0.25; }
+                } catch(e) {}
+              }
+            }
+          });
+
+          const totalEssayScore = (Object.values(newEssayGrades) as any[]).reduce((acc: number, curr: any) => acc + Number(curr.score || 0), 0);
+          const newTotalScore = totalMcScore + totalEssayScore;
+
+          await updateDoc(doc(db, 'submissions', sub.id), {
+            essayGrades: JSON.stringify(newEssayGrades),
+            score: newTotalScore,
+            status: 'graded'
+          });
+
+          newExamSummary = newExamSummary.map((s: any) => {
+            if (s.submissionId === sub.id) return { ...s, score: newTotalScore };
+            return s;
+          });
+          
+          const sIndex = newSubmissionsList.findIndex(s => s.id === sub.id);
+          if (sIndex > -1) {
+            newSubmissionsList[sIndex] = { ...newSubmissionsList[sIndex], score: newTotalScore };
+          }
+          
+          totalGraded++;
+        }
+      }
+
+      await updateDoc(doc(db, 'exams', exam.id), { submissionSummary: newExamSummary });
+      setExam({ ...exam, submissionSummary: newExamSummary });
+      setSubmissions(newSubmissionsList);
+
+      alert(`Đã hoàn tất chấm điểm AI cho ${totalGraded} bài thi có phần tự luận! (Chia theo batch ${BATCH_SIZE} bài/lần)`);
+    } catch (error: any) {
+      console.error("Bulk AI Grading Error:", error);
+      alert('Lỗi khi chấm điểm hàng loạt: ' + error.message);
+    } finally {
+      setIsBulkGrading(false);
     }
   };
 
@@ -676,14 +912,26 @@ export default function ExamResults() {
               </p>
             </div>
           </div>
-          <button
-            onClick={fetchData}
-            disabled={isRefreshing}
-            className="flex items-center px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl font-semibold hover:bg-indigo-100 transition-colors shadow-sm"
-          >
-            <RefreshCw className={`w-5 h-5 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
-            Làm mới
-          </button>
+          <div className="flex gap-2">
+            {exam?.questions?.some((q: any) => q.type === 'essay') && (
+              <button
+                onClick={handleBulkAIGradeAllStudents}
+                disabled={isBulkGrading}
+                className="flex items-center px-4 py-2 bg-gradient-to-r from-purple-500 to-indigo-600 text-white rounded-xl font-semibold hover:from-purple-600 hover:to-indigo-700 transition-all shadow-sm transform hover:scale-105 active:scale-95 disabled:opacity-50"
+              >
+                {isBulkGrading ? <RefreshCw className="w-5 h-5 mr-2 animate-spin" /> : '✨'}
+                {isBulkGrading ? 'Đang chấm...' : 'Chấm tự luận cả lớp (AI)'}
+              </button>
+            )}
+            <button
+              onClick={fetchData}
+              disabled={isRefreshing}
+              className="flex items-center px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl font-semibold hover:bg-indigo-100 transition-colors shadow-sm"
+            >
+              <RefreshCw className={`w-5 h-5 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+              Làm mới
+            </button>
+          </div>
         </div>
 
         {uniqueSubmissions.length > 0 && (
